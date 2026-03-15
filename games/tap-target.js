@@ -11,11 +11,10 @@ let _score = 0;
 let _finished = false;
 let _timeLeft = 10;
 
-let _timerInterval = null;
 let _tickRAF = null;
 
 let _circleEl = null;
-let _countEl = null;
+let _scoreCountEl = null;   // FIX 2: top-right inline counter (replaces bg-count)
 let _timerBarEl = null;
 let _timerNumEl = null;
 
@@ -49,12 +48,11 @@ export function destroy() {
 function _render() {
   _container.innerHTML = '';
 
-  // Inject keyframes once per document lifetime
   if (!document.getElementById('ss-tap-target-styles')) {
     const style = document.createElement('style');
     style.id = 'ss-tap-target-styles';
     style.textContent = `
-      @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;600&family=DM+Mono:wght@400;500&display=swap');
 
       .stt-wrapper {
         position: relative;
@@ -67,19 +65,25 @@ function _render() {
         -webkit-user-select: none;
       }
 
-      /* ── Background tap count ── */
-      .stt-bg-count {
+      /*
+       * FIX 2 — Score counter: replaces the giant faded background number.
+       * Pinned to the top-right corner of the game-area (the container),
+       * sitting just below where the HUD streak counter ends.
+       * pointer-events:none so taps pass through freely.
+       */
+      .stt-score-counter {
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        font-family: 'Bebas Neue', sans-serif;
-        font-size: 72px;
-        color: rgba(255, 255, 255, 0.12);
-        pointer-events: none;
+        top: 12px;
+        right: 16px;
+        font-family: 'DM Mono', monospace;
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.6);
         line-height: 1;
-        z-index: 0;
-        transition: color 0.15s ease;
+        pointer-events: none;
+        z-index: 10;
+        letter-spacing: 0.04em;
+        /* Subtle transition so number updates feel snappy but not jarring */
+        transition: opacity 0.1s ease;
       }
 
       /* ── Target circle ── */
@@ -229,11 +233,11 @@ function _render() {
   const wrapper = document.createElement('div');
   wrapper.className = 'stt-wrapper';
 
-  // Background count
-  _countEl = document.createElement('div');
-  _countEl.className = 'stt-bg-count';
-  _countEl.textContent = `0/${TARGET_SCORE}`;
-  wrapper.appendChild(_countEl);
+  // FIX 2: Small top-right score counter (replaces giant bg-count)
+  _scoreCountEl = document.createElement('div');
+  _scoreCountEl.className = 'stt-score-counter';
+  _scoreCountEl.textContent = `0 / ${TARGET_SCORE}`;
+  wrapper.appendChild(_scoreCountEl);
 
   // Flash layer
   const flash = document.createElement('div');
@@ -282,7 +286,10 @@ function _placeCircle(withBounce) {
 
   const minX = EDGE_PADDING + CIRCLE_DIAMETER / 2;
   const maxX = w - EDGE_PADDING - CIRCLE_DIAMETER / 2;
-  const minY = EDGE_PADDING + CIRCLE_DIAMETER / 2;
+
+  // Top guard: stay clear of the score counter (~40px tall at top-right)
+  // Using 60px from top to give comfortable clearance
+  const minY = 60 + CIRCLE_DIAMETER / 2;
   // Keep above timer bar area (≈80px from bottom)
   const maxY = h - 100 - CIRCLE_DIAMETER / 2;
 
@@ -293,9 +300,7 @@ function _placeCircle(withBounce) {
   _circleEl.style.top  = `${y}px`;
 
   if (withBounce) {
-    // Retrigger animation by removing and re-adding class
     _circleEl.classList.remove('stt-bounce');
-    // Force reflow
     void _circleEl.offsetWidth;
     _circleEl.classList.add('stt-bounce');
   }
@@ -325,8 +330,8 @@ function _onCircleTap(e) {
 // ── UI helpers ────────────────────────────────────────────────
 
 function _updateCount() {
-  if (_countEl) {
-    _countEl.textContent = `${_score}/${TARGET_SCORE}`;
+  if (_scoreCountEl) {
+    _scoreCountEl.textContent = `${_score} / ${TARGET_SCORE}`;
   }
 }
 
@@ -350,7 +355,6 @@ function _spawnScorePop(clientX, clientY) {
   pop.style.top  = `${y}px`;
   _container.firstChild.appendChild(pop);
 
-  // Remove after animation
   const cleanup = setTimeout(() => pop.remove(), 650);
   _cleanupTokens.push(cleanup);
 }
@@ -377,7 +381,6 @@ function _startTimer() {
     const remaining = Math.max(0, GAME_DURATION - elapsed);
     _timeLeft = remaining;
 
-    // Update bar (scaleX goes from 1 → 0)
     if (_timerBarEl) {
       const fraction = remaining / GAME_DURATION;
       _timerBarEl.style.transform = `scaleX(${fraction})`;
@@ -387,7 +390,6 @@ function _startTimer() {
       }
     }
 
-    // Update countdown number
     if (_timerNumEl) {
       _timerNumEl.textContent = Math.ceil(remaining);
     }
@@ -415,7 +417,6 @@ function _finish(won) {
     _triggerShake();
   }
 
-  // Small delay so the player sees the final state
   const delay = setTimeout(() => {
     if (won) {
       _onWin();
@@ -448,14 +449,14 @@ function _teardown() {
   _cleanupTokens.forEach(t => clearTimeout(t));
   _cleanupTokens.length = 0;
 
-  _circleEl    = null;
-  _countEl     = null;
-  _timerBarEl  = null;
-  _timerNumEl  = null;
-  _boundTap    = null;
-  _container   = null;
-  _onWin       = null;
-  _onFail      = null;
+  _circleEl      = null;
+  _scoreCountEl  = null;
+  _timerBarEl    = null;
+  _timerNumEl    = null;
+  _boundTap      = null;
+  _container     = null;
+  _onWin         = null;
+  _onFail        = null;
 }
 
 // ── Utility ───────────────────────────────────────────────────
