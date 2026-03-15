@@ -33,7 +33,6 @@
       --heart-empty: #2A2A3A;
       --safe-top: env(safe-area-inset-top, 0px);
       --safe-bot: env(safe-area-inset-bottom, 0px);
-      /* HUD top band: safe-area + 12px padding + ~48px for hearts/streak + 12px bottom margin */
       --hud-height: calc(var(--safe-top) + 72px);
     }
 
@@ -67,19 +66,18 @@
       background: var(--bg);
     }
 
-    /* ── SLIDE STACK ──────────────────────────────────────────────── */
+    /* ── SINGLE PERMANENT SLIDE ───────────────────────────────────── */
     #slide-stack {
       position: absolute;
       inset: 0;
       width: 100%;
       height: 100dvh;
-      will-change: transform;
-      transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
     }
 
     .slide {
       position: absolute;
       left: 0;
+      top: 0;
       width: 100%;
       height: 100dvh;
       display: flex;
@@ -88,15 +86,6 @@
       overflow: hidden;
     }
 
-    /*
-     * FIX 1 — Game area now spans from just below the HUD to the bottom
-     * of the screen. Previously it was capped at 80dvh starting from
-     * bottom:0, which left a large blank band at the top.
-     *
-     * top: var(--hud-height)  → starts immediately below the HUD band
-     * bottom: 0               → extends to the very bottom edge
-     * height: unset           → derived from top + bottom (no fixed 80dvh)
-     */
     .game-area {
       position: absolute;
       left: 0;
@@ -109,98 +98,12 @@
       overflow: hidden;
     }
 
-    /* ── PLACEHOLDER GAMES ────────────────────────────────────────── */
-    .placeholder-game {
-      width: 100%;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      position: relative;
-      overflow: hidden;
-    }
-
-    .placeholder-game::before {
-      content: '';
-      position: absolute;
-      inset: 0;
-      opacity: 0.06;
-      background-image:
-        repeating-linear-gradient(
-          0deg,
-          transparent,
-          transparent 39px,
-          rgba(255,255,255,0.3) 39px,
-          rgba(255,255,255,0.3) 40px
-        ),
-        repeating-linear-gradient(
-          90deg,
-          transparent,
-          transparent 39px,
-          rgba(255,255,255,0.3) 39px,
-          rgba(255,255,255,0.3) 40px
-        );
-    }
-
-    .placeholder-label {
-      font-family: 'Bebas Neue', sans-serif;
-      font-size: 72px;
-      line-height: 1;
-      letter-spacing: 2px;
-      text-align: center;
-      color: var(--text);
-      text-shadow: 0 0 40px currentColor;
-      position: relative;
-      z-index: 1;
-    }
-
-    .placeholder-sub {
-      font-family: 'DM Sans', sans-serif;
-      font-size: 13px;
-      color: var(--muted);
-      letter-spacing: 1px;
-      text-transform: uppercase;
-      position: relative;
-      z-index: 1;
-    }
-
-    .placeholder-hint {
-      position: absolute;
-      bottom: 32px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-family: 'DM Sans', sans-serif;
-      font-size: 12px;
-      color: var(--muted);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 6px;
-      animation: hint-bob 2s ease-in-out infinite;
-    }
-
-    .placeholder-hint .arrow {
-      width: 20px;
-      height: 20px;
-      border-right: 2px solid var(--muted);
-      border-top: 2px solid var(--muted);
-      transform: rotate(-45deg) translateY(3px);
-    }
-
-    @keyframes hint-bob {
-      0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.4; }
-      50%       { transform: translateX(-50%) translateY(-6px); opacity: 0.8; }
-    }
-
     /* ── HUD ──────────────────────────────────────────────────────── */
     #hud {
       position: absolute;
       inset: 0;
       pointer-events: none;
       z-index: 100;
-      padding-top: calc(var(--safe-top) + 12px);
     }
 
     #hud-top {
@@ -284,10 +187,6 @@
     /* Timer */
     #timer-wrap {
       position: absolute;
-      /*
-       * Timer sits just above the bottom safe area.
-       * No longer anchored to the old 20dvh game-area boundary.
-       */
       bottom: calc(var(--safe-bot) + 16px);
       left: 16px;
       right: 16px;
@@ -540,7 +439,7 @@
     }
 
     @keyframes score-pop {
-      0%   { transform: translateY(0);    opacity: 1; }
+      0%   { transform: translateY(0);     opacity: 1; }
       100% { transform: translateY(-60px); opacity: 0; }
     }
 
@@ -555,7 +454,6 @@
       text-shadow: 0 0 20px var(--cyan);
     }
 
-    /* Bounce-in for new slides */
     @keyframes bounce-in {
       0%   { transform: scale(0.3) translateY(40px); opacity: 0; }
       60%  { transform: scale(1.05) translateY(-4px); opacity: 1; }
@@ -587,26 +485,22 @@
 <div id="app">
   <div id="game-viewport">
 
-    <!-- Sliding game stack -->
+    <!-- Single permanent slide — GameEngine reuses this container -->
     <div id="slide-stack">
-      <!-- Slides injected by JS -->
+      <div class="slide">
+        <div class="game-area" id="game-area"></div>
+      </div>
     </div>
 
     <!-- HUD (always on top, pointer-events:none) -->
     <div id="hud">
       <div id="hud-top">
-        <!-- Hearts -->
-        <div id="hearts">
-          <!-- 3 hearts injected by JS -->
-        </div>
-        <!-- Streak -->
+        <div id="hearts"></div>
         <div id="streak-wrap">
           <span id="streak-label">STREAK</span>
           <span id="streak-count">0</span>
         </div>
       </div>
-
-      <!-- Timer -->
       <div id="timer-wrap">
         <div id="timer-bar-track">
           <div id="timer-bar"></div>
@@ -649,60 +543,21 @@
   </div>
 </div>
 
-<!-- ─────────────────────────────────────────────────────────────────────────
-     TYPE="MODULE" required for ES module import of tap-target.js
-     ──────────────────────────────────────────────────────────────────────── -->
 <script type="module">
 'use strict';
 
-import * as tapTarget from '/games/tap-target.js';
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CONSTANTS
-// ─────────────────────────────────────────────────────────────────────────────
-const GAME_DURATION    = 10;
-const MIN_SWIPE        = 50;
-const FAIL_ADVANCE_MS  = 1200;
-const TIMER_URGENT_S   = 3;
-const SLIDE_COUNT      = 10;
-
-const PLACEHOLDER_COLORS = [
-  '#12122A', '#0D1A0D', '#1A0D12', '#0D1219', '#1A150D',
-  '#0D1A1A', '#16100D', '#0D0D1A', '#121A0D', '#1A0D1A'
-];
-
-const PLACEHOLDER_ACCENT = [
-  '#00E5FF', '#AAFF00', '#FF3B5C', '#00E5FF', '#AAFF00',
-  '#FF3B5C', '#00E5FF', '#AAFF00', '#FF3B5C', '#00E5FF'
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STATE
-// ─────────────────────────────────────────────────────────────────────────────
-let lives         = 3;
-let streak        = 0;
-let currentIndex  = 0;
-let gameState     = 'playing'; // 'playing' | 'win' | 'fail' | 'gameover'
-let timerInterval = null;
-let timerSeconds  = GAME_DURATION;
-let slides        = [];
-
-// Tracks whether the real tap-target game is currently active
-let tapTargetActive = false;
-
-// Touch tracking
-let touchStartY   = 0;
-let touchStartX   = 0;
+import { GameEngine } from '/game-engine.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DOM REFS
 // ─────────────────────────────────────────────────────────────────────────────
 const viewport       = document.getElementById('game-viewport');
-const slideStack     = document.getElementById('slide-stack');
+const gameArea       = document.getElementById('game-area');
 const heartsEl       = document.getElementById('hearts');
 const streakEl       = document.getElementById('streak-count');
 const timerBarEl     = document.getElementById('timer-bar');
 const timerNumEl     = document.getElementById('timer-number');
+const timerWrapEl    = document.getElementById('timer-wrap');
 const winOverlay     = document.getElementById('win-overlay');
 const failOverlay    = document.getElementById('fail-overlay');
 const flashOverlay   = document.getElementById('flash-overlay');
@@ -712,128 +567,27 @@ const goBestEl       = document.getElementById('go-best');
 const tryAgainBtn    = document.getElementById('try-again-btn');
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HEART SVG FACTORY
+// CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-function heartSVG() {
-  return `<svg viewBox="0 0 24 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5
-             2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09
-             C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5
-             c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-  </svg>`;
-}
+const GAME_DURATION  = 10;
+const TIMER_URGENT_S = 3;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INIT HEARTS
+// TIMER  (driven by index.html; game modules call onWin/onFail directly)
 // ─────────────────────────────────────────────────────────────────────────────
-function renderHearts() {
-  heartsEl.innerHTML = '';
-  for (let i = 0; i < 3; i++) {
-    const h = document.createElement('div');
-    h.classList.add('heart', i < lives ? 'full' : 'empty');
-    h.setAttribute('data-index', i);
-    h.innerHTML = heartSVG();
-    heartsEl.appendChild(h);
-  }
-}
+let timerInterval = null;
+let timerSeconds  = GAME_DURATION;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BUILD SLIDES
-// ─────────────────────────────────────────────────────────────────────────────
-function buildSlides() {
-  slideStack.innerHTML = '';
-  slides = [];
-
-  for (let i = 0; i < SLIDE_COUNT; i++) {
-    const slide = document.createElement('div');
-    slide.classList.add('slide');
-    slide.style.top = `${i * 100}dvh`;
-    slide.style.background = PLACEHOLDER_COLORS[i % PLACEHOLDER_COLORS.length];
-
-    const gameArea = document.createElement('div');
-    gameArea.classList.add('game-area');
-
-    if (i === 0) {
-      // ── Slide 0: real tap-target game ───────────────────────────
-      gameArea.dataset.realGame = 'tap-target';
-    } else {
-      // ── Slides 1-9: placeholders ─────────────────────────────────
-      const placeholder = document.createElement('div');
-      placeholder.classList.add('placeholder-game');
-
-      const label = document.createElement('div');
-      label.classList.add('placeholder-label', 'slide-content-bounce');
-      label.style.color = PLACEHOLDER_ACCENT[i % PLACEHOLDER_ACCENT.length];
-      label.textContent = `GAME ${i + 1}`;
-
-      const sub = document.createElement('div');
-      sub.classList.add('placeholder-sub');
-      sub.textContent = 'coming soon';
-
-      placeholder.appendChild(label);
-      placeholder.appendChild(sub);
-      gameArea.appendChild(placeholder);
-    }
-
-    slide.appendChild(gameArea);
-    slideStack.appendChild(slide);
-    slides.push(slide);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GAME LIFECYCLE — start / stop the active game module
-// ─────────────────────────────────────────────────────────────────────────────
-
-function startGameForSlide(index) {
-  if (index === 0) {
-    const gameArea = slides[0].querySelector('.game-area');
-    tapTargetActive = true;
-    hideTimer();
-    tapTarget.init(gameArea, onWin, onFail);
-  } else {
-    startTimer();
-  }
-}
-
-function stopGameForSlide(index) {
-  if (index === 0 && tapTargetActive) {
-    tapTarget.destroy();
-    tapTargetActive = false;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SLIDE NAVIGATION
-// ─────────────────────────────────────────────────────────────────────────────
-function goToSlide(index, animate = true) {
-  if (index < 0 || index >= SLIDE_COUNT) return;
-  currentIndex = index;
-
-  if (!animate) {
-    slideStack.style.transition = 'none';
-  } else {
-    slideStack.style.transition = 'transform 0.38s cubic-bezier(0.32, 0.72, 0, 1)';
-  }
-
-  slideStack.style.transform = `translateY(-${index * 100}dvh)`;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TIMER  (used only for placeholder slides)
-// ─────────────────────────────────────────────────────────────────────────────
 function startTimer() {
   clearInterval(timerInterval);
   timerSeconds = GAME_DURATION;
   timerBarEl.style.transform = 'scaleX(1)';
   timerBarEl.classList.remove('urgent');
   timerNumEl.textContent = timerSeconds;
-
-  document.getElementById('timer-wrap').style.opacity = '1';
+  timerWrapEl.style.opacity = '1';
 
   timerInterval = setInterval(() => {
     timerSeconds--;
-
     const fraction = timerSeconds / GAME_DURATION;
     timerBarEl.style.transform = `scaleX(${Math.max(0, fraction)})`;
     timerNumEl.textContent = Math.max(0, timerSeconds);
@@ -844,9 +598,6 @@ function startTimer() {
 
     if (timerSeconds <= 0) {
       clearInterval(timerInterval);
-      if (gameState === 'playing') {
-        onFail();
-      }
     }
   }, 1000);
 }
@@ -857,98 +608,51 @@ function stopTimer() {
 }
 
 function hideTimer() {
+  stopTimer();
   timerBarEl.style.transform = 'scaleX(0)';
   timerNumEl.textContent = '';
   timerBarEl.classList.remove('urgent');
-  document.getElementById('timer-wrap').style.opacity = '0';
-}
-
-function showTimer() {
-  document.getElementById('timer-wrap').style.opacity = '1';
+  timerWrapEl.style.opacity = '0';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WIN / FAIL HANDLERS
+// HEARTS
 // ─────────────────────────────────────────────────────────────────────────────
-function onWin() {
-  if (gameState !== 'playing') return;
-  gameState = 'win';
-
-  stopTimer();
-  streak++;
-  updateStreak();
-  flashCyan();
-  hideTimer();
-
-  winOverlay.classList.add('visible');
-
-  setTimeout(() => {
-    winOverlay.classList.remove('visible');
-    advanceToNext();
-  }, 1500);
+function heartSVG() {
+  return `<svg viewBox="0 0 24 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5
+             2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09
+             C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5
+             c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+  </svg>`;
 }
 
-function onFail() {
-  if (gameState !== 'playing') return;
-  gameState = 'fail';
-
-  stopTimer();
-  shakeScreen();
-  hideTimer();
-
-  lives = Math.max(0, lives - 1);
-  animateHeartLoss();
-  renderHearts();
-
-  streak = 0;
-  updateStreak();
-
-  failOverlay.classList.add('visible');
-
-  if (lives <= 0) {
-    setTimeout(() => {
-      failOverlay.classList.remove('visible');
-      showGameOver();
-    }, FAIL_ADVANCE_MS);
-  } else {
-    setTimeout(() => {
-      failOverlay.classList.remove('visible');
-      advanceToNext();
-    }, FAIL_ADVANCE_MS);
+function renderHearts(lives) {
+  heartsEl.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const h = document.createElement('div');
+    h.classList.add('heart', i < lives ? 'full' : 'empty');
+    h.setAttribute('data-index', i);
+    h.innerHTML = heartSVG();
+    heartsEl.appendChild(h);
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ADVANCE GAME
-// ─────────────────────────────────────────────────────────────────────────────
-function advanceToNext() {
-  if (lives <= 0) { showGameOver(); return; }
-
-  const prev = currentIndex;
-  const next = currentIndex + 1;
-
-  stopGameForSlide(prev);
-
-  if (next >= SLIDE_COUNT) {
-    buildSlides();
-    goToSlide(0, false);
-    currentIndex = 0;
-  } else {
-    goToSlide(next, true);
+function animateHeartLoss(lives) {
+  // The heart that just became empty is at index `lives` (0-based, post-decrement).
+  const heartEls = heartsEl.querySelectorAll('.heart');
+  const targetIdx = lives;
+  if (heartEls[targetIdx]) {
+    heartEls[targetIdx].classList.remove('lose-anim');
+    void heartEls[targetIdx].offsetWidth;
+    heartEls[targetIdx].classList.add('lose-anim');
   }
-
-  winOverlay.classList.remove('visible');
-  gameState = 'playing';
-
-  setTimeout(() => {
-    startGameForSlide(currentIndex);
-  }, 420);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STREAK
 // ─────────────────────────────────────────────────────────────────────────────
-function updateStreak() {
+function renderStreak(streak) {
   streakEl.textContent = streak;
   streakEl.classList.remove('bump');
   void streakEl.offsetWidth;
@@ -971,102 +675,79 @@ function flashCyan() {
   setTimeout(() => flashOverlay.classList.remove('flash'), 150);
 }
 
-function animateHeartLoss() {
-  const heartEls = heartsEl.querySelectorAll('.heart');
-  const targetIdx = lives;
-  if (heartEls[targetIdx]) {
-    heartEls[targetIdx].classList.remove('lose-anim');
-    void heartEls[targetIdx].offsetWidth;
-    heartEls[targetIdx].classList.add('lose-anim');
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// ENGINE CALLBACKS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Called by GameEngine after streak has already been incremented.
+ * @param {number} streak — new streak value
+ */
+function onWin(streak) {
+  stopTimer();
+  hideTimer();
+  flashCyan();
+  renderStreak(streak);
+
+  winOverlay.classList.add('visible');
+  // GameEngine auto-advances after 800 ms (per its spec).
+  // We dismiss the overlay on the same cadence so it's gone before the next
+  // game's init() fires and clears the container.
+  setTimeout(() => winOverlay.classList.remove('visible'), 750);
 }
 
-function spawnScorePop(x, y) {
-  const pop = document.createElement('div');
-  pop.classList.add('score-pop');
-  pop.textContent = '+1';
-  pop.style.left = `${x - 16}px`;
-  pop.style.top  = `${y - 20}px`;
-  viewport.appendChild(pop);
-  setTimeout(() => pop.remove(), 650);
+/**
+ * Called by GameEngine after lives has already been decremented.
+ * @param {number} lives — remaining lives (0–2)
+ */
+function onFail(lives) {
+  stopTimer();
+  hideTimer();
+  shakeScreen();
+  animateHeartLoss(lives);
+  renderHearts(lives);
+  renderStreak(0);
+
+  failOverlay.classList.add('visible');
+  // GameEngine keeps the overlay up for 1200 ms before advancing / game-over.
+  setTimeout(() => failOverlay.classList.remove('visible'), 1150);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GAME OVER
-// ─────────────────────────────────────────────────────────────────────────────
-function showGameOver() {
-  gameState = 'gameover';
+/**
+ * Called by GameEngine when lives reaches 0.
+ * @param {number} bestStreak — all-time best from localStorage
+ * @param {number} _streak    — always 0 at game-over (engine resets on fail)
+ */
+function showGameOver(bestStreak, _streak) {
   stopTimer();
   hideTimer();
 
-  const best = getBestStreak();
-  if (streak > best) saveBestStreak(streak);
+  // The final streak shown is whatever the HUD last rendered — read it back
+  // from the DOM so we don't need a separate closure variable.
+  const finalStreak = parseInt(streakEl.textContent, 10) || 0;
 
-  goStreakEl.textContent = streak;
-  goBestEl.textContent   = Math.max(streak, best);
+  goStreakEl.textContent = finalStreak;
+  goBestEl.textContent   = Math.max(finalStreak, bestStreak);
 
   gameoverScreen.classList.add('visible');
 }
 
-function resetGame() {
-  stopGameForSlide(currentIndex);
-
-  lives         = 3;
-  streak        = 0;
-  currentIndex  = 0;
-  gameState     = 'playing';
-
-  gameoverScreen.classList.remove('visible');
-  winOverlay.classList.remove('visible');
-  failOverlay.classList.remove('visible');
-  flashOverlay.classList.remove('flash');
-
-  renderHearts();
-  updateStreak();
-  buildSlides();
-  goToSlide(0, false);
-
-  setTimeout(() => startGameForSlide(0), 150);
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// ENGINE INSTANCE
+// ─────────────────────────────────────────────────────────────────────────────
+const engine = new GameEngine(gameArea, { onWin, onFail, showGameOver });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LOCAL STORAGE
-// ─────────────────────────────────────────────────────────────────────────────
-function getBestStreak() {
-  try { return parseInt(localStorage.getItem('ss_best') || '0', 10); }
-  catch { return 0; }
-}
-
-function saveBestStreak(val) {
-  try { localStorage.setItem('ss_best', String(val)); }
-  catch { /* ignore */ }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TOUCH / SWIPE HANDLING
+// TOUCH — prevent scroll / double-tap zoom; pass-through to game modules
 // ─────────────────────────────────────────────────────────────────────────────
 viewport.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  const t = e.touches[0];
-  touchStartY = t.clientY;
-  touchStartX = t.clientX;
 }, { passive: false });
 
 viewport.addEventListener('touchmove', (e) => {
   e.preventDefault();
 }, { passive: false });
 
-viewport.addEventListener('touchend', (e) => {
-  e.preventDefault();
-  const t = e.changedTouches[0];
-  const deltaY = touchStartY - t.clientY;
-  const deltaX = Math.abs(touchStartX - t.clientX);
-  void deltaY; void deltaX;
-}, { passive: false });
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PREVENT DOUBLE-TAP ZOOM
-// ─────────────────────────────────────────────────────────────────────────────
 let lastTapTime = 0;
 viewport.addEventListener('touchend', (e) => {
   const now = Date.now();
@@ -1077,24 +758,7 @@ viewport.addEventListener('touchend', (e) => {
 }, { passive: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PLACEHOLDER TAP HANDLER
-// ─────────────────────────────────────────────────────────────────────────────
-function attachPlaceholderTap() {
-  viewport.addEventListener('touchend', (e) => {
-    if (gameState !== 'playing') return;
-    if (tapTargetActive) return;
-    if (e.target === tryAgainBtn || tryAgainBtn.contains(e.target)) return;
-
-    const touch = e.changedTouches[0];
-    const rect = viewport.getBoundingClientRect();
-    spawnScorePop(touch.clientX - rect.left, touch.clientY - rect.top);
-
-    onWin();
-  }, { passive: false });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// TRY AGAIN BUTTON
+// TRY AGAIN
 // ─────────────────────────────────────────────────────────────────────────────
 tryAgainBtn.addEventListener('touchstart', (e) => {
   e.stopPropagation();
@@ -1103,23 +767,26 @@ tryAgainBtn.addEventListener('touchstart', (e) => {
 tryAgainBtn.addEventListener('touchend', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  resetGame();
+
+  gameoverScreen.classList.remove('visible');
+  winOverlay.classList.remove('visible');
+  failOverlay.classList.remove('visible');
+  flashOverlay.classList.remove('flash');
+
+  renderHearts(3);
+  renderStreak(0);
+  hideTimer();
+
+  engine.reset();
 }, { passive: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BOOT
 // ─────────────────────────────────────────────────────────────────────────────
-function boot() {
-  renderHearts();
-  updateStreak();
-  buildSlides();
-  goToSlide(0, false);
-  attachPlaceholderTap();
-
-  setTimeout(() => startGameForSlide(0), 400);
-}
-
-boot();
+renderHearts(3);
+renderStreak(0);
+hideTimer();
+engine.start();
 </script>
 </body>
 </html>
