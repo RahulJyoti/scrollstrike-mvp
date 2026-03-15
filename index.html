@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0A0A0F" />
+  <title>ScrollStrike</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ── RESET & BASE ─────────────────────────────────────────────── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+      -webkit-touch-callout: none;
+      user-select: none;
+    }
+
+    :root {
+      --bg:       #0A0A0F;
+      --surface:  #1C1C2E;
+      --red:      #FF3B5C;
+      --lime:     #AAFF00;
+      --cyan:     #00E5FF;
+      --text:     #FFFFFF;
+      --muted:    rgba(255,255,255,0.4);
+      --heart-empty: #2A2A3A;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bot: env(safe-area-inset-bottom, 0px);
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      touch-action: none;
+      overscroll-behavior: none;
+    }
+
+    /* ── APP SHELL ────────────────────────────────────────────────── */
+    #app {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+      background: var(--bg);
+    }
+
+    #game-viewport {
+      position: relative;
+      width: 100%;
+      max-width: 390px;
+      height: 100dvh;
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    /* ── SLIDE STACK ──────────────────────────────────────────────── */
+    #slide-stack {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100dvh;
+      will-change: transform;
+      transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .slide {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Game area: 80% of screen height, centered */
+    .game-area {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 80dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── PLACEHOLDER GAMES ────────────────────────────────────────── */
+    .placeholder-game {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .placeholder-game::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0.06;
+      background-image:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 39px,
+          rgba(255,255,255,0.3) 39px,
+          rgba(255,255,255,0.3) 40px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 39px,
+          rgba(255,255,255,0.3) 39px,
+          rgba(255,255,255,0.3) 40px
+        );
+    }
+
+    .placeholder-label {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 72px;
+      line-height: 1;
+      letter-spacing: 2px;
+      text-align: center;
+      color: var(--text);
+      text-shadow: 0 0 40px currentColor;
+      position: relative;
+      z-index: 1;
+    }
+
+    .placeholder-sub {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      position: relative;
+      z-index: 1;
+    }
+
+    .placeholder-hint {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      color: var(--muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      animation: hint-bob 2s ease-in-out infinite;
+    }
+
+    .placeholder-hint .arrow {
+      width: 20px;
+      height: 20px;
+      border-right: 2px solid var(--muted);
+      border-top: 2px solid var(--muted);
+      transform: rotate(-45deg) translateY(3px);
+    }
+
+    @keyframes hint-bob {
+      0%, 100% { transform: translateX(-50%) translateY(0); opacity: 0.4; }
+      50%       { transform: translateX(-50%) translateY(-6px); opacity: 0.8; }
+    }
+
+    /* Swipe-up arrow on win state */
+    .swipe-hint {
+      display: none;
+      position: absolute;
+      bottom: 48px;
+      left: 50%;
+      transform: translateX(-50%);
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      animation: hint-bob 1.4s ease-in-out infinite;
+    }
+
+    .swipe-hint.visible { display: flex; }
+
+    .swipe-hint span {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      color: var(--lime);
+      text-transform: uppercase;
+    }
+
+    .swipe-hint .up-arrow {
+      width: 0;
+      height: 0;
+      border-left: 8px solid transparent;
+      border-right: 8px solid transparent;
+      border-bottom: 12px solid var(--lime);
+    }
+
+    /* ── HUD ──────────────────────────────────────────────────────── */
+    #hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 100;
+      padding-top: calc(var(--safe-top) + 12px);
+    }
+
+    #hud-top {
+      position: absolute;
+      top: calc(var(--safe-top) + 12px);
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 0 16px;
+    }
+
+    /* Hearts */
+    #hearts {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .heart {
+      width: 26px;
+      height: 24px;
+      position: relative;
+      transition: transform 0.2s ease;
+    }
+
+    .heart svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .heart.full svg path  { fill: var(--red); }
+    .heart.empty svg path { fill: var(--heart-empty); }
+
+    .heart.lose-anim {
+      animation: heart-lose 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+    }
+
+    @keyframes heart-lose {
+      0%   { transform: scale(1.4); }
+      30%  { transform: scale(0.6); }
+      60%  { transform: scale(1.1); }
+      100% { transform: scale(1); }
+    }
+
+    /* Streak */
+    #streak-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+
+    #streak-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 0px;
+    }
+
+    #streak-count {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 32px;
+      line-height: 1;
+      color: var(--text);
+      transition: color 0.2s ease;
+    }
+
+    #streak-count.bump {
+      animation: streak-bump 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes streak-bump {
+      0%   { transform: scale(1); }
+      50%  { transform: scale(1.4); color: var(--cyan); }
+      100% { transform: scale(1); }
+    }
+
+    /* Timer */
+    #timer-wrap {
+      position: absolute;
+      bottom: calc(var(--safe-bot) + 20dvh - 2px);
+      left: 16px;
+      right: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #timer-bar-track {
+      width: 100%;
+      height: 4px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    #timer-bar {
+      height: 100%;
+      width: 100%;
+      background: var(--red);
+      border-radius: 2px;
+      transform-origin: left center;
+      transition: transform 0.1s linear, background 0.3s ease;
+      will-change: transform;
+    }
+
+    #timer-bar.urgent {
+      background: #fff;
+      animation: timer-pulse 0.4s ease-in-out infinite;
+    }
+
+    @keyframes timer-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.6; }
+    }
+
+    #timer-number {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 20px;
+      color: var(--text);
+      line-height: 1;
+    }
+
+    /* ── OVERLAYS ─────────────────────────────────────────────────── */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      opacity: 0;
+    }
+
+    .overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Win overlay */
+    #win-overlay {
+      background: rgba(10, 10, 15, 0.75);
+      backdrop-filter: blur(4px);
+    }
+
+    #win-overlay .overlay-text {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 88px;
+      color: var(--lime);
+      line-height: 1;
+      text-align: center;
+      text-shadow: 0 0 60px rgba(170, 255, 0, 0.5);
+      transform: scale(0.3);
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #win-overlay.visible .overlay-text {
+      transform: scale(1);
+    }
+
+    /* Fail overlay */
+    #fail-overlay {
+      background: rgba(255, 59, 92, 0.15);
+      backdrop-filter: blur(2px);
+    }
+
+    #fail-overlay .overlay-text {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 80px;
+      color: var(--red);
+      line-height: 1;
+      text-align: center;
+      text-shadow: 0 0 60px rgba(255, 59, 92, 0.7);
+      transform: scale(0.3);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #fail-overlay.visible .overlay-text {
+      transform: scale(1);
+    }
+
+    /* Flash overlay */
+    #flash-overlay {
+      background: rgba(0, 229, 255, 0.2);
+      pointer-events: none;
+      z-index: 300;
+      opacity: 0;
+      transition: opacity 0.08s ease;
+    }
+
+    #flash-overlay.flash {
+      opacity: 1;
+    }
+
+    /* ── GAME OVER SCREEN ─────────────────────────────────────────── */
+    #gameover-screen {
+      position: absolute;
+      inset: 0;
+      z-index: 400;
+      background: var(--bg);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      padding: 32px 24px;
+      padding-top: calc(var(--safe-top) + 32px);
+      padding-bottom: calc(var(--safe-bot) + 32px);
+    }
+
+    #gameover-screen.visible {
+      display: flex;
+    }
+
+    .go-eyebrow {
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .go-title {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 96px;
+      color: var(--red);
+      line-height: 0.9;
+      text-align: center;
+      text-shadow: 0 0 80px rgba(255, 59, 92, 0.4);
+      margin-bottom: 40px;
+      animation: go-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    @keyframes go-in {
+      from { transform: scale(0.5); opacity: 0; }
+      to   { transform: scale(1);   opacity: 1; }
+    }
+
+    .go-stats {
+      display: flex;
+      gap: 32px;
+      align-items: flex-start;
+      margin-bottom: 56px;
+    }
+
+    .go-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .go-stat-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .go-stat-value {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 64px;
+      line-height: 1;
+      color: var(--text);
+    }
+
+    .go-stat-value.cyan { color: var(--cyan); }
+
+    .go-divider {
+      width: 1px;
+      height: 56px;
+      background: rgba(255,255,255,0.1);
+      align-self: center;
+    }
+
+    #try-again-btn {
+      background: var(--red);
+      color: var(--text);
+      border: none;
+      border-radius: 16px;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 28px;
+      letter-spacing: 2px;
+      padding: 18px 64px;
+      cursor: pointer;
+      pointer-events: auto;
+      position: relative;
+      overflow: hidden;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 8px 40px rgba(255, 59, 92, 0.4);
+      -webkit-appearance: none;
+    }
+
+    #try-again-btn::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(255,255,255,0);
+      transition: background 0.15s ease;
+    }
+
+    #try-again-btn:active {
+      transform: scale(0.95);
+      box-shadow: 0 4px 20px rgba(255, 59, 92, 0.3);
+    }
+
+    #try-again-btn:active::after {
+      background: rgba(255,255,255,0.1);
+    }
+
+    /* ── ANIMATIONS ───────────────────────────────────────────────── */
+    @keyframes shake {
+      0%   { transform: translateX(0); }
+      15%  { transform: translateX(-8px); }
+      30%  { transform: translateX(8px); }
+      45%  { transform: translateX(-8px); }
+      60%  { transform: translateX(8px); }
+      75%  { transform: translateX(-4px); }
+      90%  { transform: translateX(4px); }
+      100% { transform: translateX(0); }
+    }
+
+    .shaking {
+      animation: shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+    }
+
+    @keyframes score-pop {
+      0%   { transform: translateY(0);    opacity: 1; }
+      100% { transform: translateY(-60px); opacity: 0; }
+    }
+
+    .score-pop {
+      position: absolute;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 32px;
+      color: var(--cyan);
+      pointer-events: none;
+      z-index: 500;
+      animation: score-pop 0.6s ease-out forwards;
+      text-shadow: 0 0 20px var(--cyan);
+    }
+
+    /* Bounce-in for new slides */
+    @keyframes bounce-in {
+      0%   { transform: scale(0.3) translateY(40px); opacity: 0; }
+      60%  { transform: scale(1.05) translateY(-4px); opacity: 1; }
+      100% { transform: scale(1) translateY(0); opacity: 1; }
+    }
+
+    .slide-content-bounce {
+      animation: bounce-in 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    /* ── DECORATIVE GRAIN ─────────────────────────────────────────── */
+    #grain {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 256px 256px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Grain texture -->
+<div id="grain"></div>
+
+<!-- Main app container -->
+<div id="app">
+  <div id="game-viewport">
+
+    <!-- Sliding game stack -->
+    <div id="slide-stack">
+      <!-- Slides injected by JS -->
+    </div>
+
+    <!-- HUD (always on top, pointer-events:none) -->
+    <div id="hud">
+      <div id="hud-top">
+        <!-- Hearts -->
+        <div id="hearts">
+          <!-- 3 hearts injected by JS -->
+        </div>
+        <!-- Streak -->
+        <div id="streak-wrap">
+          <span id="streak-label">STREAK</span>
+          <span id="streak-count">0</span>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div id="timer-wrap">
+        <div id="timer-bar-track">
+          <div id="timer-bar"></div>
+        </div>
+        <span id="timer-number">10</span>
+      </div>
+    </div>
+
+    <!-- Win overlay -->
+    <div id="win-overlay" class="overlay">
+      <div class="overlay-text">NICE! 🔥</div>
+      <div class="swipe-hint" id="swipe-hint">
+        <div class="up-arrow"></div>
+        <span>swipe up</span>
+      </div>
+    </div>
+
+    <!-- Fail overlay -->
+    <div id="fail-overlay" class="overlay">
+      <div class="overlay-text">FAILED ✗</div>
+    </div>
+
+    <!-- Flash overlay -->
+    <div id="flash-overlay" class="overlay"></div>
+
+    <!-- Game Over screen -->
+    <div id="gameover-screen">
+      <span class="go-eyebrow">you're done</span>
+      <div class="go-title">GAME<br>OVER</div>
+      <div class="go-stats">
+        <div class="go-stat">
+          <span class="go-stat-label">Streak</span>
+          <span class="go-stat-value cyan" id="go-streak">0</span>
+        </div>
+        <div class="go-divider"></div>
+        <div class="go-stat">
+          <span class="go-stat-label">Best</span>
+          <span class="go-stat-value" id="go-best">0</span>
+        </div>
+      </div>
+      <button id="try-again-btn">TRY AGAIN</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────────────────────────────────────
+const GAME_DURATION    = 10;       // seconds
+const MIN_SWIPE        = 50;       // px threshold for gesture
+const FAIL_ADVANCE_MS  = 1200;     // ms before auto-advancing after fail
+const WIN_SWIPE_DELAY  = 300;      // ms grace period before swipe-to-continue
+const TIMER_URGENT_S   = 3;        // seconds remaining when urgency triggers
+const SLIDE_COUNT      = 10;       // number of placeholder slides
+
+const PLACEHOLDER_COLORS = [
+  '#12122A', '#0D1A0D', '#1A0D12', '#0D1219', '#1A150D',
+  '#0D1A1A', '#16100D', '#0D0D1A', '#121A0D', '#1A0D1A'
+];
+
+const PLACEHOLDER_ACCENT = [
+  '#00E5FF', '#AAFF00', '#FF3B5C', '#00E5FF', '#AAFF00',
+  '#FF3B5C', '#00E5FF', '#AAFF00', '#FF3B5C', '#00E5FF'
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let lives         = 3;
+let streak        = 0;
+let currentIndex  = 0;
+let gameState     = 'playing'; // 'playing' | 'win' | 'fail' | 'gameover'
+let timerInterval = null;
+let timerSeconds  = GAME_DURATION;
+let slides        = [];
+
+// Touch tracking
+let touchStartY   = 0;
+let touchStartX   = 0;
+let swipeEnabled  = false;
+let lastSwipeTime = 0;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DOM REFS
+// ─────────────────────────────────────────────────────────────────────────────
+const viewport       = document.getElementById('game-viewport');
+const slideStack     = document.getElementById('slide-stack');
+const heartsEl       = document.getElementById('hearts');
+const streakEl       = document.getElementById('streak-count');
+const timerBarEl     = document.getElementById('timer-bar');
+const timerNumEl     = document.getElementById('timer-number');
+const winOverlay     = document.getElementById('win-overlay');
+const failOverlay    = document.getElementById('fail-overlay');
+const flashOverlay   = document.getElementById('flash-overlay');
+const gameoverScreen = document.getElementById('gameover-screen');
+const goStreakEl     = document.getElementById('go-streak');
+const goBestEl       = document.getElementById('go-best');
+const tryAgainBtn    = document.getElementById('try-again-btn');
+const swipeHint      = document.getElementById('swipe-hint');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HEART SVG FACTORY
+// ─────────────────────────────────────────────────────────────────────────────
+function heartSVG() {
+  return `<svg viewBox="0 0 24 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5
+             2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09
+             C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5
+             c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+  </svg>`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT HEARTS
+// ─────────────────────────────────────────────────────────────────────────────
+function renderHearts() {
+  heartsEl.innerHTML = '';
+  for (let i = 0; i < 3; i++) {
+    const h = document.createElement('div');
+    h.classList.add('heart', i < lives ? 'full' : 'empty');
+    h.setAttribute('data-index', i);
+    h.innerHTML = heartSVG();
+    heartsEl.appendChild(h);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BUILD SLIDES
+// ─────────────────────────────────────────────────────────────────────────────
+function buildSlides() {
+  slideStack.innerHTML = '';
+  slides = [];
+
+  for (let i = 0; i < SLIDE_COUNT; i++) {
+    const slide = document.createElement('div');
+    slide.classList.add('slide');
+    slide.style.top = `${i * 100}dvh`;
+    slide.style.background = PLACEHOLDER_COLORS[i % PLACEHOLDER_COLORS.length];
+
+    const gameArea = document.createElement('div');
+    gameArea.classList.add('game-area');
+
+    const placeholder = document.createElement('div');
+    placeholder.classList.add('placeholder-game');
+
+    const label = document.createElement('div');
+    label.classList.add('placeholder-label', 'slide-content-bounce');
+    label.style.color = PLACEHOLDER_ACCENT[i % PLACEHOLDER_ACCENT.length];
+    label.textContent = `GAME ${i + 1}`;
+
+    const sub = document.createElement('div');
+    sub.classList.add('placeholder-sub');
+    sub.textContent = 'coming soon';
+
+    placeholder.appendChild(label);
+    placeholder.appendChild(sub);
+    gameArea.appendChild(placeholder);
+    slide.appendChild(gameArea);
+    slideStack.appendChild(slide);
+    slides.push(slide);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SLIDE NAVIGATION
+// ─────────────────────────────────────────────────────────────────────────────
+function goToSlide(index, animate = true) {
+  if (index < 0 || index >= SLIDE_COUNT) return;
+  currentIndex = index;
+
+  if (!animate) {
+    slideStack.style.transition = 'none';
+  } else {
+    slideStack.style.transition = 'transform 0.38s cubic-bezier(0.32, 0.72, 0, 1)';
+  }
+
+  slideStack.style.transform = `translateY(-${index * 100}dvh)`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TIMER
+// ─────────────────────────────────────────────────────────────────────────────
+function startTimer() {
+  clearInterval(timerInterval);
+  timerSeconds = GAME_DURATION;
+  timerBarEl.style.transform = 'scaleX(1)';
+  timerBarEl.classList.remove('urgent');
+  timerNumEl.textContent = timerSeconds;
+
+  timerInterval = setInterval(() => {
+    timerSeconds--;
+
+    const fraction = timerSeconds / GAME_DURATION;
+    timerBarEl.style.transform = `scaleX(${Math.max(0, fraction)})`;
+    timerNumEl.textContent = Math.max(0, timerSeconds);
+
+    if (timerSeconds <= TIMER_URGENT_S && timerSeconds > 0) {
+      timerBarEl.classList.add('urgent');
+    }
+
+    if (timerSeconds <= 0) {
+      clearInterval(timerInterval);
+      if (gameState === 'playing') {
+        onFail();
+      }
+    }
+  }, 1000);
+}
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+}
+
+function hideTimer() {
+  timerBarEl.style.transform = 'scaleX(0)';
+  timerNumEl.textContent = '';
+  timerBarEl.classList.remove('urgent');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WIN / FAIL HANDLERS
+// ─────────────────────────────────────────────────────────────────────────────
+function onWin() {
+  if (gameState !== 'playing') return;
+  gameState = 'win';
+
+  stopTimer();
+  streak++;
+  updateStreak();
+  flashCyan();
+  hideTimer();
+
+  winOverlay.classList.add('visible');
+  setTimeout(() => {
+    swipeHint.classList.add('visible');
+    swipeEnabled = true;
+    // Save time so first swipe gesture isn't immediately consumed
+    lastSwipeTime = Date.now();
+  }, WIN_SWIPE_DELAY);
+}
+
+function onFail() {
+  if (gameState !== 'playing') return;
+  gameState = 'fail';
+
+  stopTimer();
+  shakeScreen();
+  hideTimer();
+
+  lives = Math.max(0, lives - 1);
+  animateHeartLoss();
+  renderHearts();
+
+  streak = 0;
+  updateStreak();
+
+  failOverlay.classList.add('visible');
+
+  if (lives <= 0) {
+    setTimeout(() => {
+      failOverlay.classList.remove('visible');
+      showGameOver();
+    }, FAIL_ADVANCE_MS);
+  } else {
+    setTimeout(() => {
+      failOverlay.classList.remove('visible');
+      advanceToNext();
+    }, FAIL_ADVANCE_MS);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADVANCE GAME
+// ─────────────────────────────────────────────────────────────────────────────
+function advanceToNext() {
+  if (lives <= 0) { showGameOver(); return; }
+
+  const next = currentIndex + 1;
+
+  if (next >= SLIDE_COUNT) {
+    // Loop back and rebuild slides for infinite feel
+    buildSlides();
+    goToSlide(0, false);
+    currentIndex = 0;
+  } else {
+    goToSlide(next, true);
+  }
+
+  winOverlay.classList.remove('visible');
+  swipeHint.classList.remove('visible');
+  swipeEnabled = false;
+  gameState = 'playing';
+
+  // Tiny delay so the slide transition plays before timer starts
+  setTimeout(() => {
+    startTimer();
+  }, 200);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STREAK
+// ─────────────────────────────────────────────────────────────────────────────
+function updateStreak() {
+  streakEl.textContent = streak;
+  streakEl.classList.remove('bump');
+  // Force reflow for re-trigger
+  void streakEl.offsetWidth;
+  streakEl.classList.add('bump');
+  setTimeout(() => streakEl.classList.remove('bump'), 350);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANIMATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+function shakeScreen() {
+  viewport.classList.remove('shaking');
+  void viewport.offsetWidth;
+  viewport.classList.add('shaking');
+  setTimeout(() => viewport.classList.remove('shaking'), 450);
+}
+
+function flashCyan() {
+  flashOverlay.classList.add('flash');
+  setTimeout(() => flashOverlay.classList.remove('flash'), 150);
+}
+
+function animateHeartLoss() {
+  const heartEls = heartsEl.querySelectorAll('.heart');
+  // Animate the last full heart (lives is already decremented)
+  const targetIdx = lives; // was lives before decrement... lives is now post-decrement
+  if (heartEls[targetIdx]) {
+    heartEls[targetIdx].classList.remove('lose-anim');
+    void heartEls[targetIdx].offsetWidth;
+    heartEls[targetIdx].classList.add('lose-anim');
+  }
+}
+
+function spawnScorePop(x, y) {
+  const pop = document.createElement('div');
+  pop.classList.add('score-pop');
+  pop.textContent = '+1';
+  pop.style.left = `${x - 16}px`;
+  pop.style.top  = `${y - 20}px`;
+  viewport.appendChild(pop);
+  setTimeout(() => pop.remove(), 650);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME OVER
+// ─────────────────────────────────────────────────────────────────────────────
+function showGameOver() {
+  gameState = 'gameover';
+  stopTimer();
+  hideTimer();
+
+  const best = getBestStreak();
+  if (streak > best) saveBestStreak(streak);
+
+  goStreakEl.textContent = streak;
+  goBestEl.textContent   = Math.max(streak, best);
+
+  gameoverScreen.classList.add('visible');
+}
+
+function resetGame() {
+  lives         = 3;
+  streak        = 0;
+  currentIndex  = 0;
+  gameState     = 'playing';
+  swipeEnabled  = false;
+
+  gameoverScreen.classList.remove('visible');
+  winOverlay.classList.remove('visible');
+  failOverlay.classList.remove('visible');
+  swipeHint.classList.remove('visible');
+  flashOverlay.classList.remove('flash');
+
+  renderHearts();
+  updateStreak();
+  buildSlides();
+  goToSlide(0, false);
+
+  setTimeout(() => startTimer(), 100);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOCAL STORAGE
+// ─────────────────────────────────────────────────────────────────────────────
+function getBestStreak() {
+  try { return parseInt(localStorage.getItem('ss_best') || '0', 10); }
+  catch { return 0; }
+}
+
+function saveBestStreak(val) {
+  try { localStorage.setItem('ss_best', String(val)); }
+  catch { /* ignore */ }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TOUCH / SWIPE HANDLING
+// ─────────────────────────────────────────────────────────────────────────────
+viewport.addEventListener('touchstart', (e) => {
+  // Prevent pull-to-refresh and default scroll
+  e.preventDefault();
+
+  const t = e.touches[0];
+  touchStartY = t.clientY;
+  touchStartX = t.clientX;
+}, { passive: false });
+
+viewport.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+}, { passive: false });
+
+viewport.addEventListener('touchend', (e) => {
+  e.preventDefault();
+
+  const t = e.changedTouches[0];
+  const deltaY = touchStartY - t.clientY;
+  const deltaX = Math.abs(touchStartX - t.clientX);
+
+  // Ignore horizontal swipes
+  if (deltaX > Math.abs(deltaY) * 1.5) return;
+
+  // ── Swipe UP to continue after win ──
+  if (gameState === 'win' && swipeEnabled) {
+    const now = Date.now();
+    if (deltaY > MIN_SWIPE && (now - lastSwipeTime) > WIN_SWIPE_DELAY) {
+      advanceToNext();
+    }
+    return;
+  }
+
+  // ── During gameplay: swipe up is disabled (games handle taps) ──
+  // No pass-through swipe navigation during active play.
+  // Real game modules will call onWin/onFail internally.
+
+}, { passive: false });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PREVENT DOUBLE-TAP ZOOM
+// ─────────────────────────────────────────────────────────────────────────────
+let lastTapTime = 0;
+viewport.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTapTime < 300) {
+    e.preventDefault();
+  }
+  lastTapTime = now;
+}, { passive: false });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRY AGAIN BUTTON
+// ─────────────────────────────────────────────────────────────────────────────
+tryAgainBtn.addEventListener('touchstart', (e) => {
+  e.stopPropagation();
+}, { passive: false });
+
+tryAgainBtn.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  resetGame();
+}, { passive: false });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLACEHOLDER DEMO: auto-simulate a win on each slide after 2s tap
+// This lets you test the full loop without real game modules.
+// Remove this block when wiring in real game modules.
+// ─────────────────────────────────────────────────────────────────────────────
+function attachPlaceholderTap() {
+  viewport.addEventListener('touchend', (e) => {
+    if (gameState !== 'playing') return;
+
+    const touch = e.changedTouches[0];
+
+    // Ignore taps on the Try Again button
+    if (e.target === tryAgainBtn || tryAgainBtn.contains(e.target)) return;
+
+    // Spawn score pop at tap location
+    const rect = viewport.getBoundingClientRect();
+    spawnScorePop(touch.clientX - rect.left, touch.clientY - rect.top);
+
+    // Win on any tap for placeholder demo
+    onWin();
+  }, { passive: false });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BOOT
+// ─────────────────────────────────────────────────────────────────────────────
+function boot() {
+  renderHearts();
+  updateStreak();
+  buildSlides();
+  goToSlide(0, false);
+  attachPlaceholderTap();
+
+  // Short delay before timer starts so first slide settles
+  setTimeout(() => startTimer(), 400);
+}
+
+boot();
+</script>
+</body>
+</html>
