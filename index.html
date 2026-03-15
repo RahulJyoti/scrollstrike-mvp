@@ -184,36 +184,7 @@
       50%       { transform: translateX(-50%) translateY(-6px); opacity: 0.8; }
     }
 
-    /* Swipe-up arrow on win state */
-    .swipe-hint {
-      display: none;
-      position: absolute;
-      bottom: 48px;
-      left: 50%;
-      transform: translateX(-50%);
-      flex-direction: column;
-      align-items: center;
-      gap: 8px;
-      animation: hint-bob 1.4s ease-in-out infinite;
-    }
 
-    .swipe-hint.visible { display: flex; }
-
-    .swipe-hint span {
-      font-family: 'DM Mono', monospace;
-      font-size: 10px;
-      letter-spacing: 2px;
-      color: var(--lime);
-      text-transform: uppercase;
-    }
-
-    .swipe-hint .up-arrow {
-      width: 0;
-      height: 0;
-      border-left: 8px solid transparent;
-      border-right: 8px solid transparent;
-      border-bottom: 12px solid var(--lime);
-    }
 
     /* ── HUD ──────────────────────────────────────────────────────── */
     #hud {
@@ -635,10 +606,6 @@
     <!-- Win overlay -->
     <div id="win-overlay" class="overlay">
       <div class="overlay-text">NICE! 🔥</div>
-      <div class="swipe-hint" id="swipe-hint">
-        <div class="up-arrow"></div>
-        <span>swipe up</span>
-      </div>
     </div>
 
     <!-- Fail overlay -->
@@ -679,7 +646,6 @@
 const GAME_DURATION    = 10;       // seconds
 const MIN_SWIPE        = 50;       // px threshold for gesture
 const FAIL_ADVANCE_MS  = 1200;     // ms before auto-advancing after fail
-const WIN_SWIPE_DELAY  = 300;      // ms grace period before swipe-to-continue
 const TIMER_URGENT_S   = 3;        // seconds remaining when urgency triggers
 const SLIDE_COUNT      = 10;       // number of placeholder slides
 
@@ -707,8 +673,6 @@ let slides        = [];
 // Touch tracking
 let touchStartY   = 0;
 let touchStartX   = 0;
-let swipeEnabled  = false;
-let lastSwipeTime = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DOM REFS
@@ -726,7 +690,6 @@ const gameoverScreen = document.getElementById('gameover-screen');
 const goStreakEl     = document.getElementById('go-streak');
 const goBestEl       = document.getElementById('go-best');
 const tryAgainBtn    = document.getElementById('try-again-btn');
-const swipeHint      = document.getElementById('swipe-hint');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HEART SVG FACTORY
@@ -862,12 +825,12 @@ function onWin() {
   hideTimer();
 
   winOverlay.classList.add('visible');
+
+  // Auto-advance after 1.5s — no swipe needed
   setTimeout(() => {
-    swipeHint.classList.add('visible');
-    swipeEnabled = true;
-    // Save time so first swipe gesture isn't immediately consumed
-    lastSwipeTime = Date.now();
-  }, WIN_SWIPE_DELAY);
+    winOverlay.classList.remove('visible');
+    advanceToNext();
+  }, 1500);
 }
 
 function onFail() {
@@ -918,8 +881,6 @@ function advanceToNext() {
   }
 
   winOverlay.classList.remove('visible');
-  swipeHint.classList.remove('visible');
-  swipeEnabled = false;
   gameState = 'playing';
 
   // Tiny delay so the slide transition plays before timer starts
@@ -998,12 +959,10 @@ function resetGame() {
   streak        = 0;
   currentIndex  = 0;
   gameState     = 'playing';
-  swipeEnabled  = false;
 
   gameoverScreen.classList.remove('visible');
   winOverlay.classList.remove('visible');
   failOverlay.classList.remove('visible');
-  swipeHint.classList.remove('visible');
   flashOverlay.classList.remove('flash');
 
   renderHearts();
@@ -1053,18 +1012,8 @@ viewport.addEventListener('touchend', (e) => {
   // Ignore horizontal swipes
   if (deltaX > Math.abs(deltaY) * 1.5) return;
 
-  // ── Swipe UP to continue after win ──
-  if (gameState === 'win' && swipeEnabled) {
-    const now = Date.now();
-    if (deltaY > MIN_SWIPE && (now - lastSwipeTime) > WIN_SWIPE_DELAY) {
-      advanceToNext();
-    }
-    return;
-  }
-
-  // ── During gameplay: swipe up is disabled (games handle taps) ──
-  // No pass-through swipe navigation during active play.
-  // Real game modules will call onWin/onFail internally.
+  // During gameplay: swipe is not used for navigation.
+  // onWin/onFail auto-advance. Real game modules handle their own touch.
 
 }, { passive: false });
 
