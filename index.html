@@ -184,8 +184,6 @@
       50%       { transform: translateX(-50%) translateY(-6px); opacity: 0.8; }
     }
 
-
-
     /* ── HUD ──────────────────────────────────────────────────────── */
     #hud {
       position: absolute;
@@ -637,17 +635,22 @@
   </div>
 </div>
 
-<script>
+<!-- ─────────────────────────────────────────────────────────────────────────
+     TYPE="MODULE" required for ES module import of tap-target.js
+     ──────────────────────────────────────────────────────────────────────── -->
+<script type="module">
 'use strict';
+
+import * as tapTarget from '/games/tap-target.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
-const GAME_DURATION    = 10;       // seconds
-const MIN_SWIPE        = 50;       // px threshold for gesture
-const FAIL_ADVANCE_MS  = 1200;     // ms before auto-advancing after fail
-const TIMER_URGENT_S   = 3;        // seconds remaining when urgency triggers
-const SLIDE_COUNT      = 10;       // number of placeholder slides
+const GAME_DURATION    = 10;
+const MIN_SWIPE        = 50;
+const FAIL_ADVANCE_MS  = 1200;
+const TIMER_URGENT_S   = 3;
+const SLIDE_COUNT      = 10;
 
 const PLACEHOLDER_COLORS = [
   '#12122A', '#0D1A0D', '#1A0D12', '#0D1219', '#1A150D',
@@ -669,6 +672,9 @@ let gameState     = 'playing'; // 'playing' | 'win' | 'fail' | 'gameover'
 let timerInterval = null;
 let timerSeconds  = GAME_DURATION;
 let slides        = [];
+
+// Tracks whether the real tap-target game is currently active
+let tapTargetActive = false;
 
 // Touch tracking
 let touchStartY   = 0;
@@ -733,24 +739,66 @@ function buildSlides() {
     const gameArea = document.createElement('div');
     gameArea.classList.add('game-area');
 
-    const placeholder = document.createElement('div');
-    placeholder.classList.add('placeholder-game');
+    if (i === 0) {
+      // ── Slide 0: real tap-target game ───────────────────────────
+      // game-area is passed directly to tapTarget.init() — no
+      // placeholder markup needed; the module renders into it.
+      gameArea.dataset.realGame = 'tap-target';
+    } else {
+      // ── Slides 1-9: placeholders ─────────────────────────────────
+      const placeholder = document.createElement('div');
+      placeholder.classList.add('placeholder-game');
 
-    const label = document.createElement('div');
-    label.classList.add('placeholder-label', 'slide-content-bounce');
-    label.style.color = PLACEHOLDER_ACCENT[i % PLACEHOLDER_ACCENT.length];
-    label.textContent = `GAME ${i + 1}`;
+      const label = document.createElement('div');
+      label.classList.add('placeholder-label', 'slide-content-bounce');
+      label.style.color = PLACEHOLDER_ACCENT[i % PLACEHOLDER_ACCENT.length];
+      label.textContent = `GAME ${i + 1}`;
 
-    const sub = document.createElement('div');
-    sub.classList.add('placeholder-sub');
-    sub.textContent = 'coming soon';
+      const sub = document.createElement('div');
+      sub.classList.add('placeholder-sub');
+      sub.textContent = 'coming soon';
 
-    placeholder.appendChild(label);
-    placeholder.appendChild(sub);
-    gameArea.appendChild(placeholder);
+      placeholder.appendChild(label);
+      placeholder.appendChild(sub);
+      gameArea.appendChild(placeholder);
+    }
+
     slide.appendChild(gameArea);
     slideStack.appendChild(slide);
     slides.push(slide);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAME LIFECYCLE — start / stop the active game module
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Called whenever a new slide becomes active.
+ * Starts the real module on slide 0; does nothing for placeholders.
+ */
+function startGameForSlide(index) {
+  if (index === 0) {
+    const gameArea = slides[0].querySelector('.game-area');
+    tapTargetActive = true;
+    // tap-target manages its own internal 10-second timer, so we hand off
+    // control entirely — the engine timer is hidden while it runs.
+    hideTimer();
+    tapTarget.init(gameArea, onWin, onFail);
+  } else {
+    // Placeholder slides use the engine timer + placeholder tap handler
+    startTimer();
+  }
+}
+
+/**
+ * Called before navigating away from a slide.
+ * Destroys the real module if it was running.
+ */
+function stopGameForSlide(index) {
+  if (index === 0 && tapTargetActive) {
+    tapTarget.destroy();
+    tapTargetActive = false;
   }
 }
 
@@ -771,7 +819,7 @@ function goToSlide(index, animate = true) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIMER
+// TIMER  (used only for placeholder slides)
 // ─────────────────────────────────────────────────────────────────────────────
 function startTimer() {
   clearInterval(timerInterval);
@@ -779,6 +827,9 @@ function startTimer() {
   timerBarEl.style.transform = 'scaleX(1)';
   timerBarEl.classList.remove('urgent');
   timerNumEl.textContent = timerSeconds;
+
+  // Make sure timer UI is visible
+  document.getElementById('timer-wrap').style.opacity = '1';
 
   timerInterval = setInterval(() => {
     timerSeconds--;
@@ -809,10 +860,15 @@ function hideTimer() {
   timerBarEl.style.transform = 'scaleX(0)';
   timerNumEl.textContent = '';
   timerBarEl.classList.remove('urgent');
+  document.getElementById('timer-wrap').style.opacity = '0';
+}
+
+function showTimer() {
+  document.getElementById('timer-wrap').style.opacity = '1';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WIN / FAIL HANDLERS
+// WIN / FAIL HANDLERS  (passed as callbacks to every game module)
 // ─────────────────────────────────────────────────────────────────────────────
 function onWin() {
   if (gameState !== 'playing') return;
@@ -826,7 +882,6 @@ function onWin() {
 
   winOverlay.classList.add('visible');
 
-  // Auto-advance after 1.5s — no swipe needed
   setTimeout(() => {
     winOverlay.classList.remove('visible');
     advanceToNext();
@@ -869,10 +924,13 @@ function onFail() {
 function advanceToNext() {
   if (lives <= 0) { showGameOver(); return; }
 
+  const prev = currentIndex;
   const next = currentIndex + 1;
 
+  // Destroy the outgoing game before moving
+  stopGameForSlide(prev);
+
   if (next >= SLIDE_COUNT) {
-    // Loop back and rebuild slides for infinite feel
     buildSlides();
     goToSlide(0, false);
     currentIndex = 0;
@@ -883,10 +941,10 @@ function advanceToNext() {
   winOverlay.classList.remove('visible');
   gameState = 'playing';
 
-  // Tiny delay so the slide transition plays before timer starts
+  // Delay matches the slide transition (380ms) + small buffer
   setTimeout(() => {
-    startTimer();
-  }, 200);
+    startGameForSlide(currentIndex);
+  }, 420);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -895,7 +953,6 @@ function advanceToNext() {
 function updateStreak() {
   streakEl.textContent = streak;
   streakEl.classList.remove('bump');
-  // Force reflow for re-trigger
   void streakEl.offsetWidth;
   streakEl.classList.add('bump');
   setTimeout(() => streakEl.classList.remove('bump'), 350);
@@ -918,8 +975,7 @@ function flashCyan() {
 
 function animateHeartLoss() {
   const heartEls = heartsEl.querySelectorAll('.heart');
-  // Animate the last full heart (lives is already decremented)
-  const targetIdx = lives; // was lives before decrement... lives is now post-decrement
+  const targetIdx = lives;
   if (heartEls[targetIdx]) {
     heartEls[targetIdx].classList.remove('lose-anim');
     void heartEls[targetIdx].offsetWidth;
@@ -955,6 +1011,9 @@ function showGameOver() {
 }
 
 function resetGame() {
+  // Destroy any running game module before resetting
+  stopGameForSlide(currentIndex);
+
   lives         = 3;
   streak        = 0;
   currentIndex  = 0;
@@ -970,7 +1029,8 @@ function resetGame() {
   buildSlides();
   goToSlide(0, false);
 
-  setTimeout(() => startTimer(), 100);
+  // Boot the first game after a short settle delay
+  setTimeout(() => startGameForSlide(0), 150);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -990,9 +1050,7 @@ function saveBestStreak(val) {
 // TOUCH / SWIPE HANDLING
 // ─────────────────────────────────────────────────────────────────────────────
 viewport.addEventListener('touchstart', (e) => {
-  // Prevent pull-to-refresh and default scroll
   e.preventDefault();
-
   const t = e.touches[0];
   touchStartY = t.clientY;
   touchStartX = t.clientX;
@@ -1004,17 +1062,12 @@ viewport.addEventListener('touchmove', (e) => {
 
 viewport.addEventListener('touchend', (e) => {
   e.preventDefault();
-
   const t = e.changedTouches[0];
   const deltaY = touchStartY - t.clientY;
   const deltaX = Math.abs(touchStartX - t.clientX);
-
-  // Ignore horizontal swipes
-  if (deltaX > Math.abs(deltaY) * 1.5) return;
-
-  // During gameplay: swipe is not used for navigation.
-  // onWin/onFail auto-advance. Real game modules handle their own touch.
-
+  // Swipe navigation is intentionally disabled during gameplay —
+  // onWin/onFail auto-advance. Individual game modules handle their own touch.
+  void deltaY; void deltaX;
 }, { passive: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1030,6 +1083,29 @@ viewport.addEventListener('touchend', (e) => {
 }, { passive: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PLACEHOLDER TAP HANDLER
+// Fires only when gameState === 'playing' AND the current slide is a
+// placeholder (i.e. not the real tap-target game on slide 0).
+// ─────────────────────────────────────────────────────────────────────────────
+function attachPlaceholderTap() {
+  viewport.addEventListener('touchend', (e) => {
+    if (gameState !== 'playing') return;
+
+    // Ignore while the real tap-target module is active
+    if (tapTargetActive) return;
+
+    // Ignore taps on the Try Again button
+    if (e.target === tryAgainBtn || tryAgainBtn.contains(e.target)) return;
+
+    const touch = e.changedTouches[0];
+    const rect = viewport.getBoundingClientRect();
+    spawnScorePop(touch.clientX - rect.left, touch.clientY - rect.top);
+
+    onWin();
+  }, { passive: false });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // TRY AGAIN BUTTON
 // ─────────────────────────────────────────────────────────────────────────────
 tryAgainBtn.addEventListener('touchstart', (e) => {
@@ -1043,29 +1119,6 @@ tryAgainBtn.addEventListener('touchend', (e) => {
 }, { passive: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PLACEHOLDER DEMO: auto-simulate a win on each slide after 2s tap
-// This lets you test the full loop without real game modules.
-// Remove this block when wiring in real game modules.
-// ─────────────────────────────────────────────────────────────────────────────
-function attachPlaceholderTap() {
-  viewport.addEventListener('touchend', (e) => {
-    if (gameState !== 'playing') return;
-
-    const touch = e.changedTouches[0];
-
-    // Ignore taps on the Try Again button
-    if (e.target === tryAgainBtn || tryAgainBtn.contains(e.target)) return;
-
-    // Spawn score pop at tap location
-    const rect = viewport.getBoundingClientRect();
-    spawnScorePop(touch.clientX - rect.left, touch.clientY - rect.top);
-
-    // Win on any tap for placeholder demo
-    onWin();
-  }, { passive: false });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // BOOT
 // ─────────────────────────────────────────────────────────────────────────────
 function boot() {
@@ -1075,8 +1128,8 @@ function boot() {
   goToSlide(0, false);
   attachPlaceholderTap();
 
-  // Short delay before timer starts so first slide settles
-  setTimeout(() => startTimer(), 400);
+  // Start the first game after the first slide settles
+  setTimeout(() => startGameForSlide(0), 400);
 }
 
 boot();
