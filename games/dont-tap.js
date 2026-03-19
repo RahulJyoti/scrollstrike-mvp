@@ -1,15 +1,16 @@
 // games/dont-tap.js
 // ScrollStrike — "Don't Tap" mini game module
 
+import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
+
 let _container = null;
 let _onWin = null;
 let _onFail = null;
 let _timerInterval = null;
-let _instructionTimeout = null;
 let _failTimeout = null;
 let _destroyed = false;
-let _resolved = false; // guard: onWin/onFail called only once
-let _touchHandlers = []; // { el, type, fn } for cleanup
+let _resolved = false;
+let _touchHandlers = [];
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -22,62 +23,46 @@ export function init(container, onWin, onFail) {
   _touchHandlers = [];
 
   _render();
+  setGameInstruction('TAP THE GREEN ONE');
 }
 
 export function destroy() {
+  clearGameInstruction();
   _destroyed = true;
 
-  // Remove all registered touch listeners
   for (const { el, type, fn } of _touchHandlers) {
     el.removeEventListener(type, fn);
   }
   _touchHandlers = [];
 
-  // Clear all timers
   if (_timerInterval) { clearInterval(_timerInterval); _timerInterval = null; }
-  if (_instructionTimeout) { clearTimeout(_instructionTimeout); _instructionTimeout = null; }
-  if (_failTimeout) { clearTimeout(_failTimeout); _failTimeout = null; }
+  if (_failTimeout)   { clearTimeout(_failTimeout);    _failTimeout   = null; }
 
-  // Clear container
-  if (_container) { _container.innerHTML = ""; _container = null; }
+  if (_container) { _container.innerHTML = ''; _container = null; }
 }
 
 // ─── Rendering ────────────────────────────────────────────────────────────────
 
 function _render() {
-  _container.innerHTML = "";
-  _container.style.position = "relative";
-  _container.style.overflow = "hidden";
-  _container.style.width = "100%";
-  _container.style.height = "100%";
-  _container.style.background = "#0A0A0F";
+  _container.innerHTML = '';
+  _container.style.position = 'relative';
+  _container.style.overflow = 'hidden';
+  _container.style.width    = '100%';
+  _container.style.height   = '100%';
+  _container.style.background = '#0A0A0F';
 
-  // Inject keyframes once per page load
   _injectStyles();
 
-  // Instruction label
-  const instruction = document.createElement("div");
-  instruction.className = "dt-instruction";
-  instruction.textContent = "TAP THE GREEN ONE";
-  _container.appendChild(instruction);
-
-  // Fade instruction after 1.5 s
-  _instructionTimeout = setTimeout(() => {
-    if (_destroyed) return;
-    instruction.style.transition = "opacity 0.4s ease";
-    instruction.style.opacity = "0";
-  }, 1500);
-
   // Timer bar wrapper
-  const timerWrap = document.createElement("div");
-  timerWrap.className = "dt-timer-wrap";
+  const timerWrap = document.createElement('div');
+  timerWrap.className = 'dt-timer-wrap';
 
-  const timerBar = document.createElement("div");
-  timerBar.className = "dt-timer-bar";
+  const timerBar = document.createElement('div');
+  timerBar.className = 'dt-timer-bar';
 
-  const timerCount = document.createElement("div");
-  timerCount.className = "dt-timer-count";
-  timerCount.textContent = "10";
+  const timerCount = document.createElement('div');
+  timerCount.className = 'dt-timer-count';
+  timerCount.textContent = '10';
 
   timerWrap.appendChild(timerBar);
   timerWrap.appendChild(timerCount);
@@ -95,8 +80,8 @@ function _render() {
 
   // Start countdown
   let elapsed = 0;
-  const DURATION = 10000; // 10 s
-  const TICK = 100; // ms
+  const DURATION = 10000;
+  const TICK = 100;
 
   _timerInterval = setInterval(() => {
     if (_destroyed) return;
@@ -104,19 +89,15 @@ function _render() {
     const remaining = Math.max(0, DURATION - elapsed);
     const fraction = remaining / DURATION;
 
-    // Update bar width (drains left→right means shrinks)
-    timerBar.style.width = (fraction * 100) + "%";
+    timerBar.style.width = (fraction * 100) + '%';
 
-    // Countdown number
     const secs = Math.ceil(remaining / 1000);
     timerCount.textContent = secs;
 
-    // Urgency at 3 s
     if (remaining <= 3000) {
-      timerBar.classList.add("dt-timer-urgent");
+      timerBar.classList.add('dt-timer-urgent');
     }
 
-    // Time's up
     if (remaining <= 0) {
       clearInterval(_timerInterval);
       _timerInterval = null;
@@ -128,15 +109,14 @@ function _render() {
 // ─── Circle factory ───────────────────────────────────────────────────────────
 
 function _createCircle(isGreen, pos, index) {
-  const el = document.createElement("div");
-  el.className = isGreen ? "dt-circle dt-circle-green" : "dt-circle dt-circle-red";
+  const el = document.createElement('div');
+  el.className = isGreen ? 'dt-circle dt-circle-green' : 'dt-circle dt-circle-red';
 
-  el.style.left = pos.x + "px";
-  el.style.top = pos.y + "px";
+  el.style.left = pos.x + 'px';
+  el.style.top  = pos.y + 'px';
 
-  // Stagger bounce-in
-  el.style.animationDelay = (index * 40) + "ms";
-  el.classList.add("dt-bounce-in");
+  el.style.animationDelay = (index * 40) + 'ms';
+  el.classList.add('dt-bounce-in');
 
   const onTouch = (e) => {
     e.preventDefault();
@@ -150,8 +130,8 @@ function _createCircle(isGreen, pos, index) {
     }
   };
 
-  el.addEventListener("touchstart", onTouch, { passive: false });
-  _touchHandlers.push({ el, type: "touchstart", fn: onTouch });
+  el.addEventListener('touchstart', onTouch, { passive: false });
+  _touchHandlers.push({ el, type: 'touchstart', fn: onTouch });
 
   return el;
 }
@@ -165,15 +145,12 @@ function _triggerWin(touch, el) {
   clearInterval(_timerInterval);
   _timerInterval = null;
 
-  // Screen flash
-  _flashScreen("rgba(0,229,255,0.22)");
+  _flashScreen('rgba(0,229,255,0.22)');
 
-  // Score pop at tap point
   if (touch) {
     _scorePopAt(touch.clientX, touch.clientY);
   }
 
-  // Small delay so the flash is visible before engine takes over
   _failTimeout = setTimeout(() => {
     if (!_destroyed) _onWin();
   }, 150);
@@ -186,12 +163,10 @@ function _triggerFail(redCircleEl) {
   clearInterval(_timerInterval);
   _timerInterval = null;
 
-  // Flash the offending circle white
   if (redCircleEl) {
-    redCircleEl.classList.add("dt-circle-flash");
+    redCircleEl.classList.add('dt-circle-flash');
   }
 
-  // Screen shake
   _shakeScreen();
 
   _failTimeout = setTimeout(() => {
@@ -202,7 +177,7 @@ function _triggerFail(redCircleEl) {
 // ─── Animation helpers ────────────────────────────────────────────────────────
 
 function _flashScreen(color) {
-  const flash = document.createElement("div");
+  const flash = document.createElement('div');
   flash.style.cssText = `
     position:absolute; inset:0; z-index:999; pointer-events:none;
     background:${color}; opacity:1;
@@ -210,17 +185,16 @@ function _flashScreen(color) {
   `;
   _container.appendChild(flash);
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => { flash.style.opacity = "0"; });
+    requestAnimationFrame(() => { flash.style.opacity = '0'; });
   });
   setTimeout(() => { if (flash.parentNode) flash.parentNode.removeChild(flash); }, 300);
 }
 
 function _shakeScreen() {
-  _container.classList.remove("dt-shake");
-  // Force reflow so re-adding works
+  _container.classList.remove('dt-shake');
   void _container.offsetWidth;
-  _container.classList.add("dt-shake");
-  setTimeout(() => { _container.classList.remove("dt-shake"); }, 400);
+  _container.classList.add('dt-shake');
+  setTimeout(() => { _container.classList.remove('dt-shake'); }, 400);
 }
 
 function _scorePopAt(clientX, clientY) {
@@ -228,11 +202,11 @@ function _scorePopAt(clientX, clientY) {
   const x = clientX - rect.left;
   const y = clientY - rect.top;
 
-  const pop = document.createElement("div");
-  pop.className = "dt-score-pop";
-  pop.textContent = "+1";
-  pop.style.left = x + "px";
-  pop.style.top = y + "px";
+  const pop = document.createElement('div');
+  pop.className = 'dt-score-pop';
+  pop.textContent = '+1';
+  pop.style.left = x + 'px';
+  pop.style.top  = y + 'px';
   _container.appendChild(pop);
 
   setTimeout(() => { if (pop.parentNode) pop.parentNode.removeChild(pop); }, 700);
@@ -244,9 +218,9 @@ function _generatePositions(count, diameter, gap) {
   const W = Math.min(_container.offsetWidth || 390, 390);
   const H = _container.offsetHeight || 700;
 
-  // Reserve zones: top (instruction ~32px + padding) and bottom (timer ~52px)
   const PADDING = 16;
-  const TOP_RESERVE = 64;
+  // Top reserve: leave room for #game-instruction label (~40px) + padding
+  const TOP_RESERVE = 56;
   const BOTTOM_RESERVE = 70;
 
   const minX = PADDING;
@@ -276,8 +250,7 @@ function _generatePositions(count, diameter, gap) {
     if (valid) positions.push({ x, y });
   }
 
-  // Fallback: if we couldn't place all 12 cleanly (very small container),
-  // relax the gap and retry remaining slots
+  // Relaxed fallback
   if (positions.length < count) {
     const RELAXED = diameter + 4;
     while (positions.length < count && attempts < MAX_ATTEMPTS + 500) {
@@ -300,10 +273,10 @@ function _generatePositions(count, diameter, gap) {
 // ─── Injected styles ──────────────────────────────────────────────────────────
 
 function _injectStyles() {
-  const ID = "scrollstrike-dont-tap-styles";
+  const ID = 'scrollstrike-dont-tap-styles';
   if (document.getElementById(ID)) return;
 
-  const style = document.createElement("style");
+  const style = document.createElement('style');
   style.id = ID;
   style.textContent = `
     @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500&display=swap');
@@ -331,7 +304,6 @@ function _injectStyles() {
       animation: dt-pulse-glow 1.2s ease-in-out infinite;
     }
 
-    /* Bounce in from scale 0.3 */
     .dt-bounce-in {
       animation: dt-bounce-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both,
                  dt-pulse-glow 1.2s ease-in-out infinite;
@@ -340,26 +312,8 @@ function _injectStyles() {
       animation: dt-bounce-in 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
     }
 
-    /* Wrong tap: flash white */
     .dt-circle-flash {
       animation: dt-white-flash 0.25s ease forwards !important;
-    }
-
-    /* ── Instruction label ── */
-    .dt-instruction {
-      position: absolute;
-      top: 12px;
-      left: 0;
-      right: 0;
-      text-align: center;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.12em;
-      color: rgba(255,255,255,0.4);
-      pointer-events: none;
-      z-index: 10;
-      text-transform: uppercase;
     }
 
     /* ── Timer bar ── */
