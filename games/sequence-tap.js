@@ -2,6 +2,8 @@
 // ScrollStrike — Sequence Tap mini game
 // Tap tiles 1 → 2 → 3 in order. Complete 3 rounds in 10s to win.
 
+import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
+
 let _container = null;
 let _onWin = null;
 let _onFail = null;
@@ -9,12 +11,12 @@ let _timerInterval = null;
 let _gameTimeout = null;
 let _resumeTimeout = null;
 let _timeLeft = 10;
-let _currentStep = 0;       // which tile must be tapped next (0-indexed → tiles 1,2,3)
-let _roundsComplete = 0;    // how many full sequences done
+let _currentStep = 0;
+let _roundsComplete = 0;
 let _totalRounds = 3;
 let _finished = false;
-let _locked = false;        // prevents input during reset animation
-let _tileElements = [];     // live DOM references to the 3 tile divs
+let _locked = false;
+let _tileElements = [];
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
@@ -32,9 +34,11 @@ export function init(container, onWin, onFail) {
   _buildUI();
   _spawnTiles(true);
   _startTimer();
+  setGameInstruction('TAP IN ORDER: 1 → 2 → 3');
 }
 
 export function destroy() {
+  clearGameInstruction();
   _clearAllTimers();
   _removeTileListeners();
   if (_container) _container.innerHTML = '';
@@ -58,7 +62,6 @@ function _buildUI() {
     -webkit-user-select: none;
   `;
 
-  // Inject Google Fonts (safe to call multiple times — browser deduplicates)
   if (!document.getElementById('ss-fonts')) {
     const link = document.createElement('link');
     link.id   = 'ss-fonts';
@@ -67,7 +70,6 @@ function _buildUI() {
     document.head.appendChild(link);
   }
 
-  // Inject keyframes once
   if (!document.getElementById('ss-seq-styles')) {
     const style = document.createElement('style');
     style.id = 'ss-seq-styles';
@@ -119,7 +121,7 @@ function _buildUI() {
     document.head.appendChild(style);
   }
 
-  // ── Round counter label ──────────────────────────────────────────────────────
+  // ── Round counter label (top-right, stays in-game) ───────────────────────────
   const roundLabel = document.createElement('div');
   roundLabel.id = 'ss-round-label';
   roundLabel.style.cssText = `
@@ -136,28 +138,7 @@ function _buildUI() {
   roundLabel.textContent = `ROUND 1 / ${_totalRounds}`;
   _container.appendChild(roundLabel);
 
-  // ── Instruction label ────────────────────────────────────────────────────────
-  const instruction = document.createElement('div');
-  instruction.id = 'ss-instruction';
-  instruction.style.cssText = `
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -180%);
-    font-family: 'DM Sans', sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    color: rgba(255,255,255,0.38);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    pointer-events: none;
-    z-index: 10;
-    white-space: nowrap;
-  `;
-  instruction.textContent = 'TAP IN ORDER: 1 → 2 → 3';
-  _container.appendChild(instruction);
-
-  // ── Next-tap indicator ───────────────────────────────────────────────────────
+  // ── Next-tap indicator (bottom, stays in-game) ────────────────────────────────
   const nextLabel = document.createElement('div');
   nextLabel.id = 'ss-next-label';
   nextLabel.style.cssText = `
@@ -192,7 +173,6 @@ function _buildUI() {
 // ─── Tile Spawning ─────────────────────────────────────────────────────────────
 
 function _spawnTiles(initial = false) {
-  // Remove old tiles from DOM
   _removeTileListeners();
   document.querySelectorAll('.ss-tile').forEach(el => el.remove());
   _tileElements = [];
@@ -244,15 +224,15 @@ function _spawnTiles(initial = false) {
 }
 
 function _randomPositions() {
-  // Safe zone: avoid HUD (top 70px) and timer bar (bottom 60px), 16px side padding
   const containerW = _container.offsetWidth  || 390;
   const containerH = _container.offsetHeight || 680;
   const tileSize   = 76;
   const minX       = 16;
   const maxX       = containerW - tileSize - 16;
-  const minY       = 80;
+  // Top reserve: clear instruction label area (~40px) + padding
+  const minY       = 56;
   const maxY       = containerH - tileSize - 70;
-  const minDist    = 100; // minimum px between tile centres
+  const minDist    = 100;
 
   const placed = [];
   let attempts = 0;
@@ -271,7 +251,6 @@ function _randomPositions() {
     if (!tooClose) placed.push({ x: Math.round(cx), y: Math.round(cy) });
   }
 
-  // Fallback: evenly spaced row if random placement fails
   if (placed.length < 3) {
     const midY = (minY + maxY) / 2;
     const step = (maxX - minX) / 2;
@@ -286,7 +265,7 @@ function _randomPositions() {
 function _onTileTap(num, tileEl, e) {
   if (_finished || _locked) return;
 
-  const expected = _currentStep + 1; // 1-indexed
+  const expected = _currentStep + 1;
 
   if (num === expected) {
     _handleCorrectTap(num, tileEl, e);
@@ -296,7 +275,6 @@ function _onTileTap(num, tileEl, e) {
 }
 
 function _handleCorrectTap(num, tileEl, e) {
-  // Flash correct overlay
   const flash = document.getElementById('ss-flash');
   if (flash) {
     flash.style.animation = 'none';
@@ -305,14 +283,12 @@ function _handleCorrectTap(num, tileEl, e) {
     flash.style.animation = 'ss-flash-correct 0.15s ease-out forwards';
   }
 
-  // Score pop at tap position
   const touch = e.changedTouches ? e.changedTouches[0] : null;
   if (touch) {
     const rect = _container.getBoundingClientRect();
     _spawnScorePop(touch.clientX - rect.left, touch.clientY - rect.top);
   }
 
-  // Win animation on tile
   tileEl.style.animation = 'ss-tile-win 0.28s ease-out forwards';
   tileEl.style.pointerEvents = 'none';
   tileEl.removeEventListener('touchstart', tileEl._tapHandler);
@@ -321,18 +297,15 @@ function _handleCorrectTap(num, tileEl, e) {
   _updateNextLabel();
 
   if (_currentStep === 3) {
-    // Sequence complete
     _roundsComplete++;
     _updateRoundLabel();
 
     if (_roundsComplete >= _totalRounds) {
-      // All 3 rounds done — WIN
       _locked = true;
       _resumeTimeout = setTimeout(() => {
         if (!_finished) _triggerWin();
       }, 320);
     } else {
-      // Pause then reset for next sequence
       _locked = true;
       _resumeTimeout = setTimeout(() => {
         _locked       = false;
@@ -348,12 +321,10 @@ function _handleWrongTap() {
   if (_locked) return;
   _locked = true;
 
-  // Screen shake
   _container.style.animation = 'none';
   void _container.offsetWidth;
   _container.style.animation = 'ss-screen-shake 0.4s ease-out forwards';
 
-  // Reset after shake
   _resumeTimeout = setTimeout(() => {
     _container.style.animation = '';
     _currentStep = 0;
@@ -366,8 +337,6 @@ function _handleWrongTap() {
 // ─── Timer ─────────────────────────────────────────────────────────────────────
 
 function _startTimer() {
-  // The HUD timer bar is managed by game-engine.js externally;
-  // we drive time-up logic here independently.
   _timerInterval = setInterval(() => {
     if (_finished) return;
     _timeLeft -= 0.1;
@@ -378,7 +347,6 @@ function _startTimer() {
     }
   }, 100);
 
-  // Hard 10s ceiling
   _gameTimeout = setTimeout(() => {
     if (!_finished) _triggerFail();
   }, 10000);
