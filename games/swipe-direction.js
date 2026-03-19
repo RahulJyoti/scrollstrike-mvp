@@ -1,6 +1,8 @@
 // ScrollStrike — Swipe Direction Mini Game
 // games/swipe-direction.js
 
+import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
+
 // ─── Module state ────────────────────────────────────────────────────────────
 let _container  = null;
 let _onWin      = null;
@@ -49,9 +51,11 @@ export function init(container, onWin, onFail) {
   _buildDOM();
   _startArrow();
   _startTimer();
+  setGameInstruction('SWIPE THE DIRECTION');
 }
 
 export function destroy() {
+  clearGameInstruction();
   _timers.forEach(id => { clearTimeout(id); clearInterval(id); });
   _timers = [];
   _listeners.forEach(({ el, type, fn }) => el.removeEventListener(type, fn));
@@ -175,22 +179,6 @@ function _buildDOM() {
   _container.appendChild(hudEl);
   _renderStrikes();
 
-  // Instruction label
-  const instrEl = document.createElement('div');
-  instrEl.style.cssText = `
-    position: absolute;
-    top: 52px;
-    left: 0; right: 0;
-    text-align: center;
-    font-family: 'DM Sans', sans-serif;
-    font-size: 13px;
-    color: rgba(255,255,255,0.35);
-    letter-spacing: 0.06em;
-    pointer-events: none;
-  `;
-  instrEl.textContent = 'SWIPE THE DIRECTION';
-  _container.appendChild(instrEl);
-
   // Circle
   _circleEl = document.createElement('div');
   _circleEl.style.cssText = `
@@ -235,7 +223,6 @@ function _startArrow(animate = false) {
 
   if (animate) {
     _arrowEl.style.animation = 'none';
-    // Force reflow
     void _arrowEl.offsetWidth;
     _arrowEl.style.animation = 'sd-bounce-in 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards';
     _addTimer(setTimeout(() => {
@@ -358,9 +345,6 @@ function _resolve(isWin) {
 
 // ─── Timer ────────────────────────────────────────────────────────────────────
 function _startTimer() {
-  // Timer bar lives in the HUD (game-engine.js) — but per contract we manage
-  // an internal 10s countdown and call onFail if it elapses.
-  // We also add a subtle urgency cue at 3s via a DOM element.
   const urgencyEl = document.createElement('div');
   urgencyEl.style.cssText = `
     position: absolute;
@@ -393,7 +377,7 @@ function _startTimer() {
     }
   }, 100);
 
-  _addTimer(tick); // register so destroy() can clear it
+  _addTimer(tick);
 }
 
 // ─── Visual helpers ───────────────────────────────────────────────────────────
@@ -408,10 +392,6 @@ function _renderStrikes() {
         border-radius: 2px;
         background: #FF3B5C;
         animation: sd-strike-pop 0.3s cubic-bezier(0.34,1.56,0.64,1) both;
-      `;
-      mark.textContent = '';
-      // Use a Unicode X rendered via a pseudo approach with inline text
-      mark.style.cssText += `
         display: flex; align-items: center; justify-content: center;
         font-family: 'DM Sans', sans-serif;
         font-size: 10px; color: #0A0A0F; font-weight: 700;
