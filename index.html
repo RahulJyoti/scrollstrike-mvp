@@ -98,6 +98,45 @@
       overflow: hidden;
     }
 
+    /* ── GAME INSTRUCTION ─────────────────────────────────────────── */
+    /*
+     * Shared instruction label injected by each game module.
+     * Sits at the top of the game-area, below the HUD.
+     * pointer-events:none so taps pass through freely.
+     * Modules write to this element on init() and clear it on destroy().
+     */
+    #game-instruction {
+      position: absolute;
+      top: 14px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(255, 255, 255, 0.4);
+      pointer-events: none;
+      z-index: 50;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    #game-instruction.visible {
+      opacity: 1;
+    }
+
+    @keyframes instruction-fade-out {
+      0%   { opacity: 1; }
+      80%  { opacity: 1; }
+      100% { opacity: 0; }
+    }
+
+    #game-instruction.auto-fade {
+      animation: instruction-fade-out 2s ease forwards;
+    }
+
     /* ── HUD ──────────────────────────────────────────────────────── */
     #hud {
       position: absolute;
@@ -488,7 +527,15 @@
     <!-- Single permanent slide — GameEngine reuses this container -->
     <div id="slide-stack">
       <div class="slide">
-        <div class="game-area" id="game-area"></div>
+        <div class="game-area" id="game-area">
+          <!--
+            Shared instruction label — populated by each game module via
+            setGameInstruction(text) / clearGameInstruction() in game-engine.js.
+            Lives here so it always sits at the top of the game-area,
+            below the HUD, without being wiped when game-area is cleared.
+          -->
+          <div id="game-instruction"></div>
+        </div>
       </div>
     </div>
 
@@ -639,7 +686,6 @@ function renderHearts(lives) {
 }
 
 function animateHeartLoss(lives) {
-  // The heart that just became empty is at index `lives` (0-based, post-decrement).
   const heartEls = heartsEl.querySelectorAll('.heart');
   const targetIdx = lives;
   if (heartEls[targetIdx]) {
@@ -679,10 +725,6 @@ function flashCyan() {
 // ENGINE CALLBACKS
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Called by GameEngine after streak has already been incremented.
- * @param {number} streak — new streak value
- */
 function onWin(streak) {
   stopTimer();
   hideTimer();
@@ -690,16 +732,9 @@ function onWin(streak) {
   renderStreak(streak);
 
   winOverlay.classList.add('visible');
-  // GameEngine auto-advances after 800 ms (per its spec).
-  // We dismiss the overlay on the same cadence so it's gone before the next
-  // game's init() fires and clears the container.
   setTimeout(() => winOverlay.classList.remove('visible'), 750);
 }
 
-/**
- * Called by GameEngine after lives has already been decremented.
- * @param {number} lives — remaining lives (0–2)
- */
 function onFail(lives) {
   stopTimer();
   hideTimer();
@@ -709,21 +744,13 @@ function onFail(lives) {
   renderStreak(0);
 
   failOverlay.classList.add('visible');
-  // GameEngine keeps the overlay up for 1200 ms before advancing / game-over.
   setTimeout(() => failOverlay.classList.remove('visible'), 1150);
 }
 
-/**
- * Called by GameEngine when lives reaches 0.
- * @param {number} bestStreak — all-time best from localStorage
- * @param {number} _streak    — always 0 at game-over (engine resets on fail)
- */
 function showGameOver(bestStreak, _streak) {
   stopTimer();
   hideTimer();
 
-  // The final streak shown is whatever the HUD last rendered — read it back
-  // from the DOM so we don't need a separate closure variable.
   const finalStreak = parseInt(streakEl.textContent, 10) || 0;
 
   goStreakEl.textContent = finalStreak;
@@ -732,10 +759,16 @@ function showGameOver(bestStreak, _streak) {
   gameoverScreen.classList.add('visible');
 }
 
+// onGameStart is called by GameEngine just before each game module's init().
+// We use it to kick the HUD timer.
+function onGameStart() {
+  startTimer();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ENGINE INSTANCE
 // ─────────────────────────────────────────────────────────────────────────────
-const engine = new GameEngine(gameArea, { onWin, onFail, showGameOver });
+const engine = new GameEngine(gameArea, { onWin, onFail, showGameOver, onGameStart });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TOUCH — prevent scroll / double-tap zoom; pass-through to game modules
