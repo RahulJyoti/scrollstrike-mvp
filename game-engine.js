@@ -1,6 +1,12 @@
 /**
  * ScrollStrike — game-engine.js
  * Manages state, game queue, lifecycle, win/fail routing, and game-over.
+ *
+ * Exposes two module-level helpers that game modules use to write to the
+ * shared #game-instruction element in index.html:
+ *
+ *   setGameInstruction(text)  — show instruction text, auto-fade after 2s
+ *   clearGameInstruction()    — immediately hide and clear the element
  */
 
 const GAME_NAMES = [
@@ -12,6 +18,60 @@ const GAME_NAMES = [
 ];
 
 const BEST_STREAK_KEY = 'ss_best';
+
+// ─── #game-instruction helpers ───────────────────────────────────────────────
+
+let _instrFadeTimer = null;
+
+/**
+ * Write text into #game-instruction and trigger the 2-second auto-fade.
+ * Safe to call before the element exists (it checks first).
+ * @param {string} text
+ */
+export function setGameInstruction(text) {
+  const el = document.getElementById('game-instruction');
+  if (!el) return;
+
+  // Reset any in-progress fade
+  if (_instrFadeTimer) {
+    clearTimeout(_instrFadeTimer);
+    _instrFadeTimer = null;
+  }
+
+  el.textContent = text;
+  // Force reflow so class changes trigger transitions cleanly
+  el.classList.remove('auto-fade', 'visible');
+  void el.offsetWidth;
+  el.classList.add('visible');
+
+  // Trigger auto-fade after a single frame to let 'visible' paint first
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      el.classList.remove('visible');
+      el.classList.add('auto-fade');
+      // Clean up class after animation completes (2s)
+      _instrFadeTimer = setTimeout(() => {
+        el.classList.remove('auto-fade');
+        _instrFadeTimer = null;
+      }, 2100);
+    });
+  });
+}
+
+/**
+ * Immediately hide and blank #game-instruction.
+ * Called by game modules in their destroy().
+ */
+export function clearGameInstruction() {
+  if (_instrFadeTimer) {
+    clearTimeout(_instrFadeTimer);
+    _instrFadeTimer = null;
+  }
+  const el = document.getElementById('game-instruction');
+  if (!el) return;
+  el.classList.remove('visible', 'auto-fade');
+  el.textContent = '';
+}
 
 // ─── Fisher-Yates shuffle ────────────────────────────────────────────────────
 function shuffle(arr) {
@@ -26,41 +86,37 @@ function shuffle(arr) {
 // ─── GameEngine ──────────────────────────────────────────────────────────────
 export class GameEngine {
   /**
-   * @param {HTMLElement} container      — DOM node games render into
+   * @param {HTMLElement} container
    * @param {{
    *   onWin:        (streak: number) => void,
    *   onFail:       (lives: number)  => void,
-   *   showGameOver: (bestStreak: number, streak: number) => void
+   *   showGameOver: (bestStreak: number, streak: number) => void,
+   *   onGameStart:  () => void
    * }} engineCallbacks
    */
   constructor(container, engineCallbacks) {
     this._container      = container;
     this._callbacks      = engineCallbacks;
 
-    // ── persistent / session state ──────────────────────────────────────────
     this.streak          = 0;
     this.lives           = 3;
     this.bestStreak      = this._loadBestStreak();
 
-    // ── queue state ─────────────────────────────────────────────────────────
-    this._queue          = [];        // remaining games in current rotation
-    this._lastGameName   = null;      // guard against back-to-back repeats
-    this._currentModule  = null;      // active game module reference
+    this._queue          = [];
+    this._lastGameName   = null;
+    this._currentModule  = null;
 
-    // ── internal flags ──────────────────────────────────────────────────────
-    this._transitioning  = false;     // prevent concurrent loadNextGame calls
+    this._transitioning  = false;
     this._destroyed      = false;
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
 
-  /** Call once to kick off the first game. */
   start() {
     this._refillQueue();
     this._loadNextGame();
   }
 
-  /** Hard-reset everything (e.g. after Game Over → Play Again). */
   reset() {
     this._destroyCurrentGame();
     this.streak         = 0;
@@ -77,12 +133,10 @@ export class GameEngine {
   _refillQueue() {
     let newQueue = shuffle(GAME_NAMES);
 
-    // Never allow the same game back-to-back across a reshuffle boundary.
     if (
       this._lastGameName !== null &&
       newQueue[0] === this._lastGameName
     ) {
-      // Rotate the first element to the end.
       newQueue = [...newQueue.slice(1), newQueue[0]];
     }
 
@@ -94,14 +148,11 @@ export class GameEngine {
       this._refillQueue();
     }
 
-    // Pop from the front; if it matches _lastGameName keep looking
-    // (refill already guards the boundary case, but be safe mid-queue too).
     let name = this._queue.shift();
 
     if (name === this._lastGameName && this._queue.length > 0) {
-      // Swap the problematic front with whatever is next.
       const swapWith   = this._queue.shift();
-      this._queue.unshift(name); // put the conflicting name back after
+      this._queue.unshift(name);
       name = swapWith;
     }
 
@@ -125,11 +176,14 @@ export class GameEngine {
     if (this._transitioning || this._destroyed) return;
     this._transitioning = true;
 
-    // Tear down the previous game cleanly.
     this._destroyCurrentGame();
 
-    // Clear the render container.
+    // Clear game area content but preserve #game-instruction element
+    const instrEl = this._container.querySelector('#game-instruction');
     this._container.innerHTML = '';
+    if (instrEl) {
+      this._container.appendChild(instrEl);
+    }
 
     const gameName = this._dequeueNextName();
     this._lastGameName = gameName;
@@ -140,13 +194,17 @@ export class GameEngine {
     } catch (err) {
       console.error(`[GameEngine] Failed to import /games/${gameName}.js`, err);
       this._transitioning = false;
-      // Skip this game and try the next one.
       this._loadNextGame();
       return;
     }
 
     this._currentModule = module;
     this._transitioning = false;
+
+    // Fire onGameStart so the shell can start the HUD timer
+    if (typeof this._callbacks.onGameStart === 'function') {
+      this._callbacks.onGameStart();
+    }
 
     try {
       module.init(
@@ -168,10 +226,8 @@ export class GameEngine {
     this.streak++;
     this._persistBestStreak();
 
-    // Notify the shell so it can update the HUD / play the win overlay.
     this._callbacks.onWin(this.streak);
 
-    // Auto-advance after the win overlay animation (0.8 s per spec).
     setTimeout(() => this._loadNextGame(), 800);
   }
 
@@ -179,21 +235,18 @@ export class GameEngine {
     if (this._destroyed) return;
 
     this.lives--;
-    this.streak = 0; // streak resets on any fail
+    this.streak = 0;
 
-    // Notify the shell so it can update the HUD / play the fail overlay.
     this._callbacks.onFail(this.lives);
 
     if (this.lives <= 0) {
       this._destroyed = true;
       this._destroyCurrentGame();
 
-      // Give the fail overlay time to animate (1.2 s per spec), then game over.
       setTimeout(() => {
         this._callbacks.showGameOver(this.bestStreak, 0);
       }, 1200);
     } else {
-      // Auto-advance after the fail overlay animation (1.2 s per spec).
       setTimeout(() => this._loadNextGame(), 1200);
     }
   }
