@@ -3,33 +3,30 @@
 //  File: games/drag-match.js
 // ─────────────────────────────────────────────────────────────────
 
+import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
+
 let _container   = null;
 let _onWin       = null;
 let _onFail      = null;
-let _timerRAF    = null;      // requestAnimationFrame handle
+let _timerRAF    = null;
 let _startTime   = null;
-let _duration    = 10000;     // 10 s
-let _resolved    = false;     // guard: onWin / onFail called once
-let _hintTimeout = null;
+let _duration    = 10000; // 10 s
+let _resolved    = false;
 
 // Per-shape drag state
 const _drag = {
   active:    false,
-  shapeKey:  null,   // 'circle' | 'square'
-  el:        null,   // the dragging clone / element
-  startX:    0,
-  startY:    0,
+  shapeKey:  null,
+  el:        null,
   offsetX:   0,
   offsetY:   0,
 };
 
-// Keep refs to DOM nodes we'll manipulate
+// DOM node refs
 const _nodes = {
   root:         null,
-  hud:          null,
   timerBar:     null,
   timerCount:   null,
-  hint:         null,
   flash:        null,
   winOverlay:   null,
   failOverlay:  null,
@@ -82,7 +79,6 @@ function _shakeScreen() {
   const r = _nodes.root;
   if (!r) return;
   r.style.animation = 'none';
-  // Force reflow
   void r.offsetWidth;
   r.style.animation = 'ss-shake 0.4s ease';
 }
@@ -142,7 +138,7 @@ function _snapToTarget(key) {
   const target = _nodes.targets[key];
   if (!shape || !target) return;
 
-  const tc = _getCenter(target);
+  const tc   = _getCenter(target);
   const size = 64;
 
   shape.style.transition = 'left 0.2s ease, top 0.2s ease, transform 0.2s ease, opacity 0.2s';
@@ -151,9 +147,9 @@ function _snapToTarget(key) {
   shape.style.left       = (tc.x - size / 2) + 'px';
   shape.style.top        = (tc.y - size / 2) + 'px';
 
-  target.style.borderColor  = '#AAFF00';
-  target.style.boxShadow    = '0 0 18px #AAFF00, 0 0 40px rgba(170,255,0,0.35)';
-  target.style.transition   = 'border-color 0.2s, box-shadow 0.2s';
+  target.style.borderColor = '#AAFF00';
+  target.style.boxShadow   = '0 0 18px #AAFF00, 0 0 40px rgba(170,255,0,0.35)';
+  target.style.transition  = 'border-color 0.2s, box-shadow 0.2s';
 
   _nodes.matched[key] = true;
   _flashScreen();
@@ -172,10 +168,10 @@ function _tickTimer(ts) {
   if (_resolved) return;
   if (!_startTime) _startTime = ts;
 
-  const elapsed  = ts - _startTime;
-  const progress = Math.min(elapsed / _duration, 1);
+  const elapsed   = ts - _startTime;
+  const progress  = Math.min(elapsed / _duration, 1);
   const remaining = Math.max(0, _duration - elapsed);
-  const secs     = Math.ceil(remaining / 1000);
+  const secs      = Math.ceil(remaining / 1000);
 
   if (_nodes.timerBar) {
     _nodes.timerBar.style.transform = `scaleX(${1 - progress})`;
@@ -184,7 +180,6 @@ function _tickTimer(ts) {
     _nodes.timerCount.textContent = secs;
   }
 
-  // Urgency at ≤ 3 s
   if (remaining <= 3000) {
     if (_nodes.timerBar) {
       _nodes.timerBar.style.background = '#FFFFFF';
@@ -209,7 +204,7 @@ function _onTouchStart(e) {
   const el    = e.currentTarget;
   const key   = el.dataset.shape;
 
-  if (_nodes.matched[key]) return;  // already locked in
+  if (_nodes.matched[key]) return;
 
   e.preventDefault();
 
@@ -217,7 +212,7 @@ function _onTouchStart(e) {
   _drag.shapeKey = key;
   _drag.el       = el;
 
-  const rect   = el.getBoundingClientRect();
+  const rect    = el.getBoundingClientRect();
   _drag.offsetX = touch.clientX - rect.left;
   _drag.offsetY = touch.clientY - rect.top;
 
@@ -250,7 +245,6 @@ function _onTouchEnd(e) {
   _drag.active = false;
   el.style.zIndex = '100';
 
-  // Check hit
   const shapeCtr  = _getCenter(el);
   const targetCtr = _getCenter(target);
   const hit       = _dist(shapeCtr, targetCtr) <= 44;
@@ -258,7 +252,6 @@ function _onTouchEnd(e) {
   if (hit) {
     _snapToTarget(key);
   } else {
-    // Check if dropped on WRONG target
     const wrongKey    = key === 'circle' ? 'square' : 'circle';
     const wrongTarget = _nodes.targets[wrongKey];
     const wrongCtr    = _getCenter(wrongTarget);
@@ -303,11 +296,6 @@ function _injectKeyframes() {
       0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0,229,255,0); }
       50%     { transform: scale(1.15); box-shadow: 0 0 16px 6px rgba(0,229,255,0.45); }
     }
-    @keyframes ss-hint-fade {
-      0%   { opacity: 0.35; }
-      80%  { opacity: 0.35; }
-      100% { opacity: 0; }
-    }
     @keyframes ss-bounce-appear {
       0%   { transform: scale(0.3); opacity: 0; }
       70%  { transform: scale(1.08); opacity: 1; }
@@ -351,26 +339,6 @@ function _buildUI() {
   _nodes.flash = flash;
   root.appendChild(flash);
 
-  // ── Hint label ────────────────────────────────────────────────
-  const hint = document.createElement('div');
-  hint.textContent = 'DRAG TO MATCH';
-  hint.style.cssText = `
-    position: absolute;
-    top: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    font-family: 'DM Mono', 'DM Sans', monospace;
-    font-size: 11px;
-    letter-spacing: 1.5px;
-    color: rgba(255,255,255,0.35);
-    pointer-events: none;
-    z-index: 10;
-    white-space: nowrap;
-    animation: ss-hint-fade 1.5s ease forwards;
-  `;
-  _nodes.hint = hint;
-  root.appendChild(hint);
-
   // ── Vertical divider ─────────────────────────────────────────
   const divider = document.createElement('div');
   divider.style.cssText = `
@@ -384,86 +352,6 @@ function _buildUI() {
     z-index: 1;
   `;
   root.appendChild(divider);
-
-  // ── HUD ───────────────────────────────────────────────────────
-  const hud = document.createElement('div');
-  hud.style.cssText = `
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    padding: 16px 16px 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    pointer-events: none;
-    z-index: 300;
-  `;
-
-  // Hearts (CSS clip-path hearts)
-  const heartsEl = document.createElement('div');
-  heartsEl.style.cssText = 'display:flex;gap:6px;align-items:center;';
-  for (let i = 0; i < 3; i++) {
-    const h = document.createElement('div');
-    h.style.cssText = `
-      width: 22px; height: 20px;
-      background: #FF3B5C;
-      clip-path: path('M11 18.5C11 18.5 2 13 2 7.5A5 5 0 0 1 12 5.5A5 5 0 0 1 22 7.5C22 13 13 18.5 11 18.5Z');
-      /* Simpler heart via clip-path polygon approximation */
-    `;
-    // Use a reliable heart shape via SVG inline mask or just a styled div
-    h.style.cssText = `
-      width: 20px; height: 20px;
-      background: #FF3B5C;
-      position: relative;
-      transform: rotate(-45deg);
-      border-radius: 2px 0 2px 2px;
-    `;
-    const before = document.createElement('div');
-    before.style.cssText = `
-      content:'';
-      position:absolute;
-      width:20px; height:20px;
-      background:#FF3B5C;
-      border-radius:50% 50% 0 0;
-      top:-10px; left:0;
-    `;
-    const after = document.createElement('div');
-    after.style.cssText = `
-      content:'';
-      position:absolute;
-      width:20px; height:20px;
-      background:#FF3B5C;
-      border-radius:50% 50% 0 0;
-      top:0; left:10px;
-    `;
-    h.appendChild(before);
-    h.appendChild(after);
-    heartsEl.appendChild(h);
-  }
-  hud.appendChild(heartsEl);
-
-  // Streak
-  const streakWrap = document.createElement('div');
-  streakWrap.style.cssText = 'text-align:right;display:flex;flex-direction:column;align-items:flex-end;';
-  const streakLabel = document.createElement('div');
-  streakLabel.textContent = 'STREAK';
-  streakLabel.style.cssText = `
-    font-family: 'DM Sans', monospace;
-    font-size: 9px;
-    color: rgba(255,255,255,0.4);
-    letter-spacing: 1px;
-  `;
-  const streakNum = document.createElement('div');
-  streakNum.textContent = '0';
-  streakNum.style.cssText = `
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 32px;
-    color: #FFFFFF;
-    line-height: 1;
-  `;
-  streakWrap.appendChild(streakLabel);
-  streakWrap.appendChild(streakNum);
-  hud.appendChild(streakWrap);
-  root.appendChild(hud);
 
   // ── Timer bar ─────────────────────────────────────────────────
   const timerWrap = document.createElement('div');
@@ -506,32 +394,25 @@ function _buildUI() {
   timerWrap.appendChild(timerCount);
   root.appendChild(timerWrap);
 
-  _nodes.hud        = hud;
   _nodes.timerBar   = timerBar;
   _nodes.timerCount = timerCount;
 
-  // ── Game area ─────────────────────────────────────────────────
-  // Measured in percentages so it adapts to any container size.
-  // Left column = shapes, right column = targets.
-  // We use fixed positioning relative to the container to allow
-  // free-position dragging.
-
+  // ── Layout measurements ───────────────────────────────────────
   const SHAPE_SIZE  = 64;
   const containerH  = _container.offsetHeight || window.innerHeight;
   const containerW  = _container.offsetWidth  || Math.min(window.innerWidth, 390);
 
-  const midX   = containerW / 2;
-  const midY   = containerH / 2;
+  const midX = containerW / 2;
+  // Shift vertically down slightly to avoid the #game-instruction label
+  const midY = containerH / 2 + 20;
 
-  // Shape origins (left side, vertically centred ±80px)
   const shapeOrigins = {
-    circle: { x: midX / 2 - SHAPE_SIZE / 2, y: midY - 90 },
-    square: { x: midX / 2 - SHAPE_SIZE / 2, y: midY + 26 },
+    circle: { x: midX / 2 - SHAPE_SIZE / 2, y: midY - 80 },
+    square: { x: midX / 2 - SHAPE_SIZE / 2, y: midY + 36 },
   };
-  // Target positions (right side, mirror)
   const targetPos = {
-    circle: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY - 90 },
-    square: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY + 26 },
+    circle: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY - 80 },
+    square: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY + 36 },
   };
 
   _nodes.origins = shapeOrigins;
@@ -599,14 +480,12 @@ function _buildUI() {
 
   // ── Labels under shapes and targets ──────────────────────────
   [
-    { key: 'circle', side: 'shape' },
-    { key: 'square', side: 'shape' },
-    { key: 'circle', side: 'target' },
-    { key: 'square', side: 'target' },
-  ].forEach(({ key, side }) => {
+    { key: 'circle', pos: shapeOrigins.circle },
+    { key: 'square', pos: shapeOrigins.square },
+    { key: 'circle', pos: targetPos.circle },
+    { key: 'square', pos: targetPos.square },
+  ].forEach(({ key, pos }) => {
     const label = document.createElement('div');
-    const isShape  = side === 'shape';
-    const pos      = isShape ? shapeOrigins[key] : targetPos[key];
     label.textContent = key.toUpperCase();
     label.style.cssText = `
       position: absolute;
@@ -669,7 +548,6 @@ function _buildUI() {
 // ─── Public API ───────────────────────────────────────────────────
 
 export function init(container, onWin, onFail) {
-  // Reset all state
   _container  = container;
   _onWin      = onWin;
   _onFail     = onFail;
@@ -679,50 +557,42 @@ export function init(container, onWin, onFail) {
   _nodes.matched.circle = false;
   _nodes.matched.square = false;
 
-  // Prevent double-tap zoom on iOS
   container.style.touchAction = 'none';
 
   _buildUI();
+  setGameInstruction('DRAG TO MATCH');
 
   // Start timer on next frame so layout is settled
   _timerRAF = requestAnimationFrame(_tickTimer);
 }
 
 export function destroy() {
-  // Cancel timer
+  clearGameInstruction();
   cancelAnimationFrame(_timerRAF);
-  clearTimeout(_hintTimeout);
 
-  // Remove touch listeners from shapes
   Object.values(_nodes.shapes).forEach(el => {
+    if (!el) return;
     el.removeEventListener('touchstart', _onTouchStart);
     el.removeEventListener('touchmove',  _onTouchMove);
     el.removeEventListener('touchend',   _onTouchEnd);
   });
 
-  // Remove injected keyframes style tag
-  const kf = document.getElementById('ss-drag-match-kf');
-  if (kf) kf.remove();
-
-  // Wipe the container
   if (_nodes.root && _nodes.root.parentNode) {
     _nodes.root.parentNode.removeChild(_nodes.root);
   }
 
-  // Nullify all refs
   _container    = null;
   _onWin        = null;
   _onFail       = null;
-  _nodes.root   = null;
-  _nodes.timerBar   = null;
-  _nodes.timerCount = null;
-  _nodes.hint   = null;
-  _nodes.flash  = null;
-  _nodes.winOverlay  = null;
-  _nodes.failOverlay = null;
-  Object.keys(_nodes.shapes).forEach(k => { _nodes.shapes[k] = null; });
+  _nodes.root         = null;
+  _nodes.timerBar     = null;
+  _nodes.timerCount   = null;
+  _nodes.flash        = null;
+  _nodes.winOverlay   = null;
+  _nodes.failOverlay  = null;
+  Object.keys(_nodes.shapes).forEach(k  => { _nodes.shapes[k]  = null; });
   Object.keys(_nodes.targets).forEach(k => { _nodes.targets[k] = null; });
   Object.keys(_nodes.origins).forEach(k => { _nodes.origins[k] = null; });
-  _drag.active  = false;
-  _drag.el      = null;
+  _drag.active = false;
+  _drag.el     = null;
 }
