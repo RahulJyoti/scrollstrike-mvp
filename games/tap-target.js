@@ -3,6 +3,8 @@
 //  File: games/tap-target.js
 // ─────────────────────────────────────────────────────────────
 
+import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
+
 let _container = null;
 let _onWin = null;
 let _onFail = null;
@@ -14,7 +16,7 @@ let _timeLeft = 10;
 let _tickRAF = null;
 
 let _circleEl = null;
-let _scoreCountEl = null;   // FIX 2: top-right inline counter (replaces bg-count)
+let _scoreCountEl = null;
 let _timerBarEl = null;
 let _timerNumEl = null;
 
@@ -36,10 +38,12 @@ export function init(container, onWin, onFail) {
   _timeLeft = GAME_DURATION;
 
   _render();
+  setGameInstruction('TAP THE TARGET');
   _startTimer();
 }
 
 export function destroy() {
+  clearGameInstruction();
   _teardown();
 }
 
@@ -47,6 +51,13 @@ export function destroy() {
 
 function _render() {
   _container.innerHTML = '';
+
+  // Re-append the instruction element if it was wiped (game-engine preserves
+  // it, but guard here too)
+  const existing = document.getElementById('game-instruction');
+  if (existing && existing.parentNode !== _container) {
+    _container.appendChild(existing);
+  }
 
   if (!document.getElementById('ss-tap-target-styles')) {
     const style = document.createElement('style');
@@ -65,12 +76,7 @@ function _render() {
         -webkit-user-select: none;
       }
 
-      /*
-       * FIX 2 — Score counter: replaces the giant faded background number.
-       * Pinned to the top-right corner of the game-area (the container),
-       * sitting just below where the HUD streak counter ends.
-       * pointer-events:none so taps pass through freely.
-       */
+      /* Score counter — top-right of game area */
       .stt-score-counter {
         position: absolute;
         top: 12px;
@@ -82,7 +88,6 @@ function _render() {
         pointer-events: none;
         z-index: 10;
         letter-spacing: 0.04em;
-        /* Subtle transition so number updates feel snappy but not jarring */
         transition: opacity 0.1s ease;
       }
 
@@ -233,7 +238,7 @@ function _render() {
   const wrapper = document.createElement('div');
   wrapper.className = 'stt-wrapper';
 
-  // FIX 2: Small top-right score counter (replaces giant bg-count)
+  // Score counter (top-right)
   _scoreCountEl = document.createElement('div');
   _scoreCountEl.className = 'stt-score-counter';
   _scoreCountEl.textContent = `0 / ${TARGET_SCORE}`;
@@ -287,8 +292,7 @@ function _placeCircle(withBounce) {
   const minX = EDGE_PADDING + CIRCLE_DIAMETER / 2;
   const maxX = w - EDGE_PADDING - CIRCLE_DIAMETER / 2;
 
-  // Top guard: stay clear of the score counter (~40px tall at top-right)
-  // Using 60px from top to give comfortable clearance
+  // Top guard: clear the instruction label (~40px) + padding
   const minY = 60 + CIRCLE_DIAMETER / 2;
   // Keep above timer bar area (≈80px from bottom)
   const maxY = h - 100 - CIRCLE_DIAMETER / 2;
