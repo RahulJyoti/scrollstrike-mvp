@@ -10,29 +10,52 @@ let _onWin      = null;
 let _onFail     = null;
 let _timerRAF   = null;
 let _startTime  = null;
-let _duration   = 10000;
+const _duration = 10000;
 let _resolved   = false;
 
 const _drag = {
   active:   false,
   shapeKey: null,
   el:       null,
+  // offset from the shape's top-left corner to the touch point (container space)
   offsetX:  0,
   offsetY:  0,
 };
 
 const _nodes = {
-  root:        null,
-  timerBar:    null,
-  timerCount:  null,
-  flash:       null,
-  shapes:      {},
-  targets:     {},
-  origins:     {},
-  matched:     { circle: false, square: false },
+  root:       null,
+  timerBar:   null,
+  timerCount: null,
+  flash:      null,
+  shapes:     {},   // key → DOM element
+  targets:    {},   // key → DOM element
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────
+// Stored positions in container-local coordinates (top-left of each element)
+const _origins  = {};   // key → { x, y }
+const _targetPos = {};  // key → { x, y }  (top-left, container space)
+const _matched  = { circle: false, square: false };
+
+const SHAPE_SIZE    = 64;   // px — shapes AND targets are exactly this
+const HIT_RADIUS    = 60;   // px — centre-to-centre drop detection
+
+// ─── Coordinate helpers ───────────────────────────────────────────
+
+/**
+ * Return the centre of an absolutely-positioned element in CONTAINER space.
+ * el.style.left / el.style.top are already container-local, so we read them
+ * directly — no getBoundingClientRect() mixing of coordinate spaces.
+ */
+function _centerOfEl(el) {
+  return {
+    x: parseFloat(el.style.left) + SHAPE_SIZE / 2,
+    y: parseFloat(el.style.top)  + SHAPE_SIZE / 2,
+  };
+}
+
+function _dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+// ─── Resolve ──────────────────────────────────────────────────────
 
 function _resolve(type) {
   if (_resolved) return;
@@ -40,20 +63,12 @@ function _resolve(type) {
   cancelAnimationFrame(_timerRAF);
 
   if (type === 'win') {
-    _showWin();
     setTimeout(() => _onWin && _onWin(), 800);
   } else {
-    _showFail();
+    _shakeScreen();
     setTimeout(() => _onFail && _onFail(), 1200);
   }
 }
-
-function _getCenter(el) {
-  const r = el.getBoundingClientRect();
-  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
-}
-
-function _dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
 // ─── Animations ───────────────────────────────────────────────────
 
@@ -77,12 +92,17 @@ function _shakeScreen() {
   r.style.animation = 'ss-shake 0.4s ease';
 }
 
-function _scorePopAt(x, y) {
+function _scorePopAt(containerX, containerY) {
+  // Convert container-local coords to viewport coords for the fixed overlay
+  const rect = _container.getBoundingClientRect();
+  const vx   = rect.left + containerX;
+  const vy   = rect.top  + containerY;
+
   const pop = document.createElement('div');
   pop.textContent = '+1';
   pop.style.cssText = `
     position: fixed;
-    left: ${x}px; top: ${y}px;
+    left: ${vx}px; top: ${vy}px;
     transform: translate(-50%, -50%);
     font-family: 'Bebas Neue', sans-serif;
     font-size: 28px; color: #AAFF00;
@@ -93,22 +113,12 @@ function _scorePopAt(x, y) {
   setTimeout(() => pop.remove(), 620);
 }
 
-function _showWin() {
-  // Bug 1: use engine's canonical overlay — do not spawn a local one.
-  // Just play sound; the engine shows the NICE overlay via onWin callback.
-}
-
-function _showFail() {
-  // Bug 1: engine's canonical overlay handles FAILED display.
-  _shakeScreen();
-}
-
 function _springBack(key) {
   const el  = _nodes.shapes[key];
-  const org = _nodes.origins[key];
+  const org = _origins[key];
   if (!el || !org) return;
 
-  el.style.transition = 'transform 0.45s cubic-bezier(0.34,1.56,0.64,1), left 0.45s cubic-bezier(0.34,1.56,0.64,1), top 0.45s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s';
+  el.style.transition = 'left 0.45s cubic-bezier(0.34,1.56,0.64,1), top 0.45s cubic-bezier(0.34,1.56,0.64,1), transform 0.45s cubic-bezier(0.34,1.56,0.64,1), opacity 0.2s';
   el.style.opacity    = '1';
   el.style.transform  = 'scale(1)';
   el.style.left       = org.x + 'px';
@@ -117,34 +127,39 @@ function _springBack(key) {
   _shakeScreen();
 }
 
+/**
+ * Snap shape to be perfectly centred inside its target outline.
+ * Target top-left is _targetPos[key]; shape top-left must equal that
+ * exactly — both are SHAPE_SIZE × SHAPE_SIZE, so top-lefts align perfectly.
+ */
 function _snapToTarget(key) {
   const shape  = _nodes.shapes[key];
   const target = _nodes.targets[key];
   if (!shape || !target) return;
 
-  const tc   = _getCenter(target);
-  const size = 64;
+  const tx = _targetPos[key].x;
+  const ty = _targetPos[key].y;
 
   shape.style.transition = 'left 0.2s ease, top 0.2s ease, transform 0.2s ease, opacity 0.2s';
   shape.style.opacity    = '1';
   shape.style.transform  = 'scale(1)';
-  shape.style.left       = (tc.x - size / 2) + 'px';
-  shape.style.top        = (tc.y - size / 2) + 'px';
+  shape.style.left       = tx + 'px';
+  shape.style.top        = ty + 'px';
+  shape.style.zIndex     = '10';   // sit on top of target outline
 
   target.style.borderColor = '#AAFF00';
   target.style.boxShadow   = '0 0 18px #AAFF00, 0 0 40px rgba(170,255,0,0.35)';
   target.style.transition  = 'border-color 0.2s, box-shadow 0.2s';
 
-  _nodes.matched[key] = true;
+  _matched[key] = true;
   _flashScreen();
 
-  // Bug 3: correct sound on each successful match
-  if (window.SS_SOUND) window.SS_SOUND.correct();
+  // Score pop appears at the centre of the target (container coords)
+  const cx = tx + SHAPE_SIZE / 2;
+  const cy = ty + SHAPE_SIZE / 2;
+  _scorePopAt(cx, cy);
 
-  const tc2 = _getCenter(target);
-  _scorePopAt(tc2.x, tc2.y);
-
-  if (_nodes.matched.circle && _nodes.matched.square) {
+  if (_matched.circle && _matched.square) {
     setTimeout(() => _resolve('win'), 300);
   }
 }
@@ -160,23 +175,15 @@ function _tickTimer(ts) {
   const remaining = Math.max(0, _duration - elapsed);
   const secs      = Math.ceil(remaining / 1000);
 
-  if (_nodes.timerBar) {
-    _nodes.timerBar.style.transform = `scaleX(${1 - progress})`;
-  }
-  if (_nodes.timerCount) {
-    _nodes.timerCount.textContent = secs;
-  }
+  if (_nodes.timerBar)   _nodes.timerBar.style.transform   = `scaleX(${1 - progress})`;
+  if (_nodes.timerCount) _nodes.timerCount.textContent     = secs;
 
-  if (remaining <= 3000) {
-    if (_nodes.timerBar) {
-      _nodes.timerBar.style.background = '#FFFFFF';
-      _nodes.timerBar.style.animation  = 'ss-timer-pulse 0.5s ease-in-out infinite';
-    }
+  if (remaining <= 3000 && _nodes.timerBar) {
+    _nodes.timerBar.style.background = '#FFFFFF';
+    _nodes.timerBar.style.animation  = 'ss-timer-pulse 0.5s ease-in-out infinite';
   }
 
   if (progress >= 1) {
-    // Bug 3: wrong sound on timeout
-    if (window.SS_SOUND) window.SS_SOUND.wrong();
     _resolve('fail');
     return;
   }
@@ -189,25 +196,29 @@ function _tickTimer(ts) {
 function _onTouchStart(e) {
   if (_resolved || _drag.active) return;
 
-  const touch = e.touches[0];
-  const el    = e.currentTarget;
-  const key   = el.dataset.shape;
+  const touch   = e.touches[0];
+  const el      = e.currentTarget;
+  const key     = el.dataset.shape;
 
-  if (_nodes.matched[key]) return;
-
+  if (_matched[key]) return;
   e.preventDefault();
+
+  // Convert viewport touch coords → container-local coords
+  const rect    = _container.getBoundingClientRect();
+  const localX  = touch.clientX - rect.left;
+  const localY  = touch.clientY - rect.top;
+
+  // Offset = touch position relative to shape's top-left corner
+  _drag.offsetX  = localX - parseFloat(el.style.left);
+  _drag.offsetY  = localY - parseFloat(el.style.top);
 
   _drag.active   = true;
   _drag.shapeKey = key;
   _drag.el       = el;
 
-  const rect    = el.getBoundingClientRect();
-  _drag.offsetX = touch.clientX - rect.left;
-  _drag.offsetY = touch.clientY - rect.top;
-
   el.style.transition = 'none';
-  el.style.opacity    = '0.75';
-  el.style.transform  = 'scale(1.1)';
+  el.style.opacity    = '0.85';
+  el.style.transform  = 'scale(1.08)';
   el.style.zIndex     = '200';
 }
 
@@ -215,12 +226,15 @@ function _onTouchMove(e) {
   if (!_drag.active) return;
   e.preventDefault();
 
-  const touch = e.touches[0];
-  const x     = touch.clientX - _drag.offsetX;
-  const y     = touch.clientY - _drag.offsetY;
+  const touch  = e.touches[0];
+  const rect   = _container.getBoundingClientRect();
 
-  _drag.el.style.left = x + 'px';
-  _drag.el.style.top  = y + 'px';
+  // Keep shape top-left such that the touch point stays at offsetX/Y inside it
+  const newLeft = (touch.clientX - rect.left) - _drag.offsetX;
+  const newTop  = (touch.clientY - rect.top)  - _drag.offsetY;
+
+  _drag.el.style.left = newLeft + 'px';
+  _drag.el.style.top  = newTop  + 'px';
 }
 
 function _onTouchEnd(e) {
@@ -229,26 +243,27 @@ function _onTouchEnd(e) {
 
   const key    = _drag.shapeKey;
   const el     = _drag.el;
-  const target = _nodes.targets[key];
 
   _drag.active = false;
   el.style.zIndex = '100';
 
-  const shapeCtr  = _getCenter(el);
-  const targetCtr = _getCenter(target);
-  const hit       = _dist(shapeCtr, targetCtr) <= 44;
+  // All centres in container-local space
+  const shapeCtr     = _centerOfEl(el);
+  const ownTargetCtr = {
+    x: _targetPos[key].x + SHAPE_SIZE / 2,
+    y: _targetPos[key].y + SHAPE_SIZE / 2,
+  };
 
-  if (hit) {
+  if (_dist(shapeCtr, ownTargetCtr) <= HIT_RADIUS) {
     _snapToTarget(key);
   } else {
-    const wrongKey    = key === 'circle' ? 'square' : 'circle';
-    const wrongTarget = _nodes.targets[wrongKey];
-    const wrongCtr    = _getCenter(wrongTarget);
-    const wrongHit    = _dist(shapeCtr, wrongCtr) <= 44;
-
-    if (wrongHit) {
-      // Bug 3: wrong sound when dropped on wrong target
-      if (window.SS_SOUND) window.SS_SOUND.wrong();
+    // Check if accidentally dropped onto the wrong target
+    const wrongKey = key === 'circle' ? 'square' : 'circle';
+    const wrongCtr = {
+      x: _targetPos[wrongKey].x + SHAPE_SIZE / 2,
+      y: _targetPos[wrongKey].y + SHAPE_SIZE / 2,
+    };
+    if (_dist(shapeCtr, wrongCtr) <= HIT_RADIUS) {
       _shakeScreen();
     }
     _springBack(key);
@@ -257,7 +272,7 @@ function _onTouchEnd(e) {
   _drag.el = null;
 }
 
-// ─── Build DOM ────────────────────────────────────────────────────
+// ─── Keyframes ────────────────────────────────────────────────────
 
 function _injectKeyframes() {
   if (document.getElementById('ss-drag-match-kf')) return;
@@ -278,14 +293,9 @@ function _injectKeyframes() {
       60%  { transform: translate(-50%,-100%) scale(1.1); opacity: 1; }
       100% { transform: translate(-50%,-160%) scale(0.9); opacity: 0; }
     }
-    @keyframes ss-bounce-in {
-      0%   { transform: translate(-50%,-50%) scale(0.3); opacity: 0; }
-      70%  { transform: translate(-50%,-50%) scale(1.08); opacity: 1; }
-      100% { transform: translate(-50%,-50%) scale(1);   opacity: 1; }
-    }
     @keyframes ss-pulse-glow {
-      0%,100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(0,229,255,0); }
-      50%     { transform: scale(1.15); box-shadow: 0 0 16px 6px rgba(0,229,255,0.45); }
+      0%,100% { box-shadow: 0 0 0 0 rgba(0,229,255,0); }
+      50%     { box-shadow: 0 0 16px 6px rgba(0,229,255,0.45); }
     }
     @keyframes ss-bounce-appear {
       0%   { transform: scale(0.3); opacity: 0; }
@@ -300,6 +310,8 @@ function _injectKeyframes() {
   document.head.appendChild(style);
 }
 
+// ─── Build DOM ────────────────────────────────────────────────────
+
 function _buildUI() {
   _injectKeyframes();
 
@@ -312,24 +324,27 @@ function _buildUI() {
   `;
   _nodes.root = root;
 
+  // Screen flash overlay
   const flash = document.createElement('div');
   flash.style.cssText = `
     position: absolute; inset: 0;
-    pointer-events: none; z-index: 500;
-    opacity: 0; background: rgba(0,229,255,0.2);
+    pointer-events: none; z-index: 500; opacity: 0;
+    background: rgba(0,229,255,0.2);
   `;
   _nodes.flash = flash;
   root.appendChild(flash);
 
+  // Vertical divider
   const divider = document.createElement('div');
   divider.style.cssText = `
-    position: absolute; left: 50%; top: 15%; height: 70%; width: 1px;
+    position: absolute; left: 50%; top: 0; height: 100%; width: 1px;
     background: linear-gradient(to bottom, transparent,
-      rgba(255,255,255,0.1) 20%, rgba(255,255,255,0.1) 80%, transparent);
+      rgba(255,255,255,0.08) 20%, rgba(255,255,255,0.08) 80%, transparent);
     pointer-events: none; z-index: 1;
   `;
   root.appendChild(divider);
 
+  // Timer bar
   const timerWrap  = document.createElement('div');
   timerWrap.style.cssText = `
     position: absolute; bottom: 0; left: 0; right: 0;
@@ -345,7 +360,7 @@ function _buildUI() {
   timerBar.style.cssText = `
     position: absolute; left: 0; top: 0;
     width: 100%; height: 100%; background: #FF3B5C;
-    transform-origin: left center; transform: scaleX(1); transition: none;
+    transform-origin: left center; transform: scaleX(1);
   `;
   const timerCount = document.createElement('div');
   timerCount.textContent = '10';
@@ -363,49 +378,76 @@ function _buildUI() {
   _nodes.timerBar   = timerBar;
   _nodes.timerCount = timerCount;
 
-  // Bug 2: layout shapes and targets within middle 60% vertically
-  const SHAPE_SIZE  = 64;
-  const containerH  = _container.offsetHeight || window.innerHeight;
-  const containerW  = _container.offsetWidth  || Math.min(window.innerWidth, 390);
+  // ── Layout maths ──────────────────────────────────────────────
+  // All positions are in container-local pixels (top-left origin).
+  // Safe zone: top 20% → bottom 20% excluded → usable middle 60%.
+  const cH   = _container.offsetHeight || window.innerHeight;
+  const cW   = _container.offsetWidth  || Math.min(window.innerWidth, 390);
 
-  const safeTop     = containerH * 0.20;
-  const safeBot     = containerH * 0.20;
-  const safeHeight  = containerH - safeTop - safeBot;
+  const safeTop    = cH * 0.20;
+  const safeHeight = cH * 0.60;          // middle 60%
+  const midY       = safeTop + safeHeight / 2;   // vertical midpoint of safe zone
 
-  // Place shapes in the vertical middle of the safe zone
-  const midY = safeTop + safeHeight / 2;
-  const midX = containerW / 2;
+  const halfW      = cW / 2;
+  const shapeColCX = halfW * 0.5;        // centre of left column
+  const targetColCX = halfW + halfW * 0.5; // centre of right column
 
-  const shapeOrigins = {
-    circle: { x: midX / 2 - SHAPE_SIZE / 2, y: midY - 52 },
-    square: { x: midX / 2 - SHAPE_SIZE / 2, y: midY + 20 },
-  };
-  const targetPos = {
-    circle: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY - 52 },
-    square: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY + 20 },
-  };
+  const SPACING    = SHAPE_SIZE + 24;    // gap between circle row and square row
 
-  _nodes.origins = shapeOrigins;
+  // Top-left positions (shapes and targets share identical SHAPE_SIZE)
+  _origins['circle']   = { x: shapeColCX  - SHAPE_SIZE / 2, y: midY - SPACING / 2 - SHAPE_SIZE / 2 };
+  _origins['square']   = { x: shapeColCX  - SHAPE_SIZE / 2, y: midY + SPACING / 2 - SHAPE_SIZE / 2 };
+  _targetPos['circle'] = { x: targetColCX - SHAPE_SIZE / 2, y: midY - SPACING / 2 - SHAPE_SIZE / 2 };
+  _targetPos['square'] = { x: targetColCX - SHAPE_SIZE / 2, y: midY + SPACING / 2 - SHAPE_SIZE / 2 };
 
-  const shapeConfigs = [
-    { key: 'circle', color: '#00E5FF', radius: '50%' },
-    { key: 'square', color: '#FF3B5C', radius: '10px' },
+  // ── Draw target outlines first (low z-index) ──────────────────
+  const targetCfg = [
+    { key: 'circle', radius: '50%' },
+    { key: 'square', radius: '10px' },
   ];
-
-  shapeConfigs.forEach(({ key, color, radius }) => {
+  targetCfg.forEach(({ key, radius }, i) => {
     const el  = document.createElement('div');
-    const org = shapeOrigins[key];
+    const pos = _targetPos[key];
+    el.style.cssText = `
+      position: absolute;
+      left:   ${pos.x}px;
+      top:    ${pos.y}px;
+      width:  ${SHAPE_SIZE}px;
+      height: ${SHAPE_SIZE}px;
+      border: 2px dashed rgba(255,255,255,0.25);
+      border-radius: ${radius};
+      background: transparent;
+      z-index: 5; pointer-events: none;
+      box-sizing: border-box;
+      animation: ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1)
+                 ${i * 0.08}s both;
+    `;
+    root.appendChild(el);
+    _nodes.targets[key] = el;
+  });
+
+  // ── Draw draggable shapes ─────────────────────────────────────
+  const shapeCfg = [
+    { key: 'circle', color: '#00E5FF', radius: '50%',  delay: '0s' },
+    { key: 'square', color: '#FF3B5C', radius: '10px', delay: '0.12s' },
+  ];
+  shapeCfg.forEach(({ key, color, radius, delay }) => {
+    const el  = document.createElement('div');
+    const org = _origins[key];
     el.dataset.shape = key;
     el.style.cssText = `
       position: absolute;
-      left: ${org.x}px; top: ${org.y}px;
-      width: ${SHAPE_SIZE}px; height: ${SHAPE_SIZE}px;
-      background: ${color}; border-radius: ${radius};
-      z-index: 100; cursor: grab; touch-action: none;
+      left:   ${org.x}px;
+      top:    ${org.y}px;
+      width:  ${SHAPE_SIZE}px;
+      height: ${SHAPE_SIZE}px;
+      background: ${color};
+      border-radius: ${radius};
+      box-sizing: border-box;
+      z-index: 100; touch-action: none;
       animation: ss-pulse-glow 1.2s ease-in-out infinite,
-                 ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
-      animation-delay: 0s, ${key === 'square' ? '0.12s' : '0s'};
-      box-shadow: 0 0 0 0 ${color}; will-change: transform, left, top;
+                 ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1) ${delay} both;
+      will-change: transform, left, top;
     `;
     el.addEventListener('touchstart', _onTouchStart, { passive: false });
     el.addEventListener('touchmove',  _onTouchMove,  { passive: false });
@@ -414,44 +456,22 @@ function _buildUI() {
     _nodes.shapes[key] = el;
   });
 
-  const targetConfigs = [
-    { key: 'circle', radius: '50%' },
-    { key: 'square', radius: '10px' },
+  // ── Column labels ─────────────────────────────────────────────
+  const labelCfg = [
+    { text: 'DRAG', x: shapeColCX,   y: safeTop + safeHeight * 0.82 },
+    { text: 'DROP', x: targetColCX,  y: safeTop + safeHeight * 0.82 },
   ];
-
-  targetConfigs.forEach(({ key, radius }) => {
-    const el  = document.createElement('div');
-    const pos = targetPos[key];
-    el.style.cssText = `
-      position: absolute;
-      left: ${pos.x}px; top: ${pos.y}px;
-      width: ${SHAPE_SIZE}px; height: ${SHAPE_SIZE}px;
-      border: 2px dashed rgba(255,255,255,0.25);
-      border-radius: ${radius}; background: transparent;
-      z-index: 5; pointer-events: none;
-      animation: ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1)
-                 ${key === 'square' ? '0.18s' : '0.06s'} both;
-    `;
-    root.appendChild(el);
-    _nodes.targets[key] = el;
-  });
-
-  // Labels under shapes and targets
-  [
-    { key: 'circle', pos: shapeOrigins.circle },
-    { key: 'square', pos: shapeOrigins.square },
-    { key: 'circle', pos: targetPos.circle },
-    { key: 'square', pos: targetPos.square },
-  ].forEach(({ key, pos }) => {
+  labelCfg.forEach(({ text, x, y }) => {
     const label = document.createElement('div');
-    label.textContent = key.toUpperCase();
+    label.textContent = text;
     label.style.cssText = `
       position: absolute;
-      left: ${pos.x}px; top: ${pos.y + SHAPE_SIZE + 8}px;
-      width: ${SHAPE_SIZE}px; text-align: center;
-      font-family: 'DM Sans', sans-serif;
-      font-size: 10px; color: rgba(255,255,255,0.3);
-      pointer-events: none; letter-spacing: 0.5px; z-index: 2;
+      left: ${x - 30}px; top: ${y}px;
+      width: 60px; text-align: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 9px; letter-spacing: 1.5px;
+      color: rgba(255,255,255,0.25);
+      pointer-events: none; z-index: 2;
     `;
     root.appendChild(label);
   });
@@ -462,19 +482,25 @@ function _buildUI() {
 // ─── Public API ───────────────────────────────────────────────────
 
 export function init(container, onWin, onFail) {
-  _container  = container;
-  _onWin      = onWin;
-  _onFail     = onFail;
-  _resolved   = false;
-  _startTime  = null;
-  _drag.active = false;
-  _nodes.matched.circle = false;
-  _nodes.matched.square = false;
+  _container = container;
+  _onWin     = onWin;
+  _onFail    = onFail;
+  _resolved  = false;
+  _startTime = null;
+
+  _drag.active   = false;
+  _drag.el       = null;
+  _matched.circle = false;
+  _matched.square = false;
+
+  // Clear node refs
+  _nodes.shapes  = {};
+  _nodes.targets = {};
 
   container.style.touchAction = 'none';
 
   _buildUI();
-  setGameInstruction('DRAG TO MATCH');
+  setGameInstruction('DRAG SHAPES TO MATCHING OUTLINES');
 
   _timerRAF = requestAnimationFrame(_tickTimer);
 }
@@ -494,16 +520,15 @@ export function destroy() {
     _nodes.root.parentNode.removeChild(_nodes.root);
   }
 
-  _container          = null;
-  _onWin              = null;
-  _onFail             = null;
-  _nodes.root         = null;
-  _nodes.timerBar     = null;
-  _nodes.timerCount   = null;
-  _nodes.flash        = null;
-  Object.keys(_nodes.shapes).forEach(k  => { _nodes.shapes[k]  = null; });
-  Object.keys(_nodes.targets).forEach(k => { _nodes.targets[k] = null; });
-  Object.keys(_nodes.origins).forEach(k => { _nodes.origins[k] = null; });
-  _drag.active = false;
-  _drag.el     = null;
+  _container        = null;
+  _onWin            = null;
+  _onFail           = null;
+  _nodes.root       = null;
+  _nodes.timerBar   = null;
+  _nodes.timerCount = null;
+  _nodes.flash      = null;
+  _nodes.shapes     = {};
+  _nodes.targets    = {};
+  _drag.active      = false;
+  _drag.el          = null;
 }
