@@ -7,16 +7,16 @@ import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
 let _container  = null;
 let _onWin      = null;
 let _onFail     = null;
-let _timers     = [];      // all setTimeout / setInterval ids
-let _listeners  = [];      // [{ el, type, fn }] for cleanup
+let _timers     = [];
+let _listeners  = [];
 
 let _score      = 0;
 let _strikes    = 0;
 let _finished   = false;
-let _accepting  = true;    // false while a result animation is playing
+let _accepting  = true;
 
-let _currentDir = null;    // 'left' | 'up' | 'right' | 'down'
-let _touchStart = null;    // { x, y }
+let _currentDir = null;
+let _touchStart = null;
 
 let _arrowEl    = null;
 let _circleEl   = null;
@@ -28,13 +28,12 @@ const MAX_STRIKES = 2;
 const GAME_SECS   = 10;
 const MIN_SWIPE   = 50;
 
-const ARROWS = {
-  left:  '←',
-  up:    '↑',
-  right: '→',
-  down:  '↓',
-};
-const DIRS = Object.keys(ARROWS);
+// Bug 2: safe zone — arrow circle must live in middle 60%
+const SAFE_TOP_PCT = 0.20;
+const SAFE_BOT_PCT = 0.20;
+
+const ARROWS = { left: '←', up: '↑', right: '→', down: '↓' };
+const DIRS   = Object.keys(ARROWS);
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 export function init(container, onWin, onFail) {
@@ -82,7 +81,11 @@ function _buildDOM() {
     -webkit-user-select: none;
   `;
 
-  // Inject scoped keyframes once
+  // Bug 2: push circle into the safe zone by clamping its vertical position.
+  // We override the flex centering with an absolute position calculated after
+  // the container renders.
+  _container.style.justifyContent = 'flex-start';
+
   if (!document.getElementById('sd-keyframes')) {
     const style = document.createElement('style');
     style.id = 'sd-keyframes';
@@ -168,21 +171,18 @@ function _buildDOM() {
   _scoreEl.textContent = `0 / ${WIN_TARGET}`;
 
   _strikesEl = document.createElement('div');
-  _strikesEl.style.cssText = `
-    display: flex;
-    gap: 5px;
-    align-items: center;
-  `;
+  _strikesEl.style.cssText = `display: flex; gap: 5px; align-items: center;`;
 
   hudEl.appendChild(_scoreEl);
   hudEl.appendChild(_strikesEl);
   _container.appendChild(hudEl);
   _renderStrikes();
 
-  // Circle
+  // Bug 2: position circle in safe zone (middle 60% vertically)
+  // We use absolute positioning so safe-zone maths is explicit.
   _circleEl = document.createElement('div');
   _circleEl.style.cssText = `
-    position: relative;
+    position: absolute;
     width: 130px;
     height: 130px;
     border-radius: 50%;
@@ -191,9 +191,20 @@ function _buildDOM() {
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    left: 50%;
+    transform: translateX(-50%);
   `;
 
-  // Arrow character
+  // Vertically center within the safe zone after layout
+  requestAnimationFrame(() => {
+    if (!_container || !_circleEl) return;
+    const h = _container.offsetHeight || 600;
+    const safeTop = h * 0.20;
+    const safeBot = h * 0.20;
+    const midSafe = safeTop + (h - safeTop - safeBot) / 2 - 65; // 65 = half of 130px
+    _circleEl.style.top = `${midSafe}px`;
+  });
+
   _arrowEl = document.createElement('div');
   _arrowEl.style.cssText = `
     font-family: 'Bebas Neue', sans-serif;
@@ -207,17 +218,14 @@ function _buildDOM() {
   _circleEl.appendChild(_arrowEl);
   _container.appendChild(_circleEl);
 
-  // Swipe listeners on the whole container
   _addListener(_container, 'touchstart', _onTouchStart, { passive: true });
   _addListener(_container, 'touchend',   _onTouchEnd,   { passive: true });
-
-  // Prevent double-tap zoom
-  _addListener(_container, 'touchend', _preventDoubleZoom);
+  _addListener(_container, 'touchend',   _preventDoubleZoom);
 }
 
 // ─── Arrow logic ─────────────────────────────────────────────────────────────
 function _startArrow(animate = false) {
-  const dirs = DIRS.filter(d => d !== _currentDir); // avoid immediate repeat
+  const dirs = DIRS.filter(d => d !== _currentDir);
   _currentDir = dirs[Math.floor(Math.random() * dirs.length)];
   _arrowEl.textContent = ARROWS[_currentDir];
 
@@ -226,9 +234,7 @@ function _startArrow(animate = false) {
     void _arrowEl.offsetWidth;
     _arrowEl.style.animation = 'sd-bounce-in 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards';
     _addTimer(setTimeout(() => {
-      if (_arrowEl) {
-        _arrowEl.style.animation = 'sd-pulse 1.2s ease-in-out infinite';
-      }
+      if (_arrowEl) _arrowEl.style.animation = 'sd-pulse 1.2s ease-in-out infinite';
     }, 450));
   }
 }
@@ -242,7 +248,7 @@ function _onTouchStart(e) {
 
 function _onTouchEnd(e) {
   if (!_accepting || _finished || !_touchStart) return;
-  const t = e.changedTouches[0];
+  const t  = e.changedTouches[0];
   const dx = t.clientX - _touchStart.x;
   const dy = t.clientY - _touchStart.y;
   _touchStart = null;
@@ -250,7 +256,7 @@ function _onTouchEnd(e) {
   const absDx = Math.abs(dx);
   const absDy = Math.abs(dy);
 
-  if (absDx < MIN_SWIPE && absDy < MIN_SWIPE) return; // too short, ignore
+  if (absDx < MIN_SWIPE && absDy < MIN_SWIPE) return;
 
   let swiped;
   if (absDx >= absDy) {
@@ -280,13 +286,11 @@ function _handleCorrect(tapX, tapY) {
   _score++;
   _scoreEl.textContent = `${_score} / ${WIN_TARGET}`;
 
-  // Arrow flash lime
+  // Bug 3: correct sound
+  if (window.SS_SOUND) window.SS_SOUND.correct();
+
   _arrowEl.style.animation = 'sd-arrow-lime 0.45s ease forwards';
-
-  // Screen flash
   _flashScreen('rgba(0,229,255,0.18)');
-
-  // Score pop "+1"
   _spawnScorePop(tapX, tapY);
 
   if (_score >= WIN_TARGET) {
@@ -294,12 +298,8 @@ function _handleCorrect(tapX, tapY) {
     return;
   }
 
-  // Next arrow after short delay
   _addTimer(setTimeout(() => {
-    if (!_finished) {
-      _startArrow(true);
-      _accepting = true;
-    }
+    if (!_finished) { _startArrow(true); _accepting = true; }
   }, 420));
 }
 
@@ -309,10 +309,10 @@ function _handleWrong() {
   _strikes++;
   _renderStrikes();
 
-  // Arrow flash red
-  _arrowEl.style.animation = 'sd-arrow-red 0.45s ease forwards';
+  // Bug 3: wrong sound
+  if (window.SS_SOUND) window.SS_SOUND.wrong();
 
-  // Screen shake
+  _arrowEl.style.animation = 'sd-arrow-red 0.45s ease forwards';
   _shakeScreen();
 
   if (_strikes >= MAX_STRIKES) {
@@ -321,62 +321,35 @@ function _handleWrong() {
   }
 
   _addTimer(setTimeout(() => {
-    if (!_finished) {
-      _startArrow(true);
-      _accepting = true;
-    }
+    if (!_finished) { _startArrow(true); _accepting = true; }
   }, 500));
 }
 
-// ─── Resolve (win / fail) ─────────────────────────────────────────────────────
+// ─── Resolve ──────────────────────────────────────────────────────────────────
 function _resolve(isWin) {
   if (_finished) return;
   _finished  = true;
   _accepting = false;
 
   if (isWin) {
-    _showOverlay('NICE! 🔥', '#AAFF00', false);
     _addTimer(setTimeout(() => { if (_onWin) _onWin(); }, 800));
   } else {
-    _showOverlay('FAILED ✗', '#FF3B5C', true);
     _addTimer(setTimeout(() => { if (_onFail) _onFail(); }, 1200));
   }
 }
 
 // ─── Timer ────────────────────────────────────────────────────────────────────
 function _startTimer() {
-  const urgencyEl = document.createElement('div');
-  urgencyEl.style.cssText = `
-    position: absolute;
-    bottom: 56px;
-    left: 0; right: 0;
-    text-align: center;
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 14px;
-    color: rgba(255,59,92,0);
-    transition: color 0.3s;
-    pointer-events: none;
-  `;
-  urgencyEl.textContent = '⚡ HURRY ⚡';
-  _container.appendChild(urgencyEl);
-
   const start = Date.now();
   const tick = setInterval(() => {
     if (_finished) { clearInterval(tick); return; }
-    const elapsed = (Date.now() - start) / 1000;
+    const elapsed   = (Date.now() - start) / 1000;
     const remaining = GAME_SECS - elapsed;
-
-    if (remaining <= 3) {
-      urgencyEl.style.color = 'rgba(255,59,92,0.6)';
-      urgencyEl.style.animation = 'sd-timer-pulse 0.6s ease-in-out infinite';
-    }
-
     if (remaining <= 0) {
       clearInterval(tick);
       if (!_finished) _resolve(false);
     }
   }, 100);
-
   _addTimer(tick);
 }
 
@@ -412,12 +385,9 @@ function _renderStrikes() {
 function _flashScreen(color) {
   const flash = document.createElement('div');
   flash.style.cssText = `
-    position: absolute;
-    inset: 0;
-    background: ${color};
-    pointer-events: none;
-    z-index: 20;
-    border-radius: inherit;
+    position: absolute; inset: 0;
+    background: ${color}; pointer-events: none;
+    z-index: 20; border-radius: inherit;
     animation: sd-flash-correct 0.15s ease forwards;
   `;
   _container.appendChild(flash);
@@ -425,6 +395,7 @@ function _flashScreen(color) {
 }
 
 function _shakeScreen() {
+  if (!_container) return;
   _container.style.animation = 'none';
   void _container.offsetWidth;
   _container.style.animation = 'sd-shake 0.4s ease forwards';
@@ -434,6 +405,7 @@ function _shakeScreen() {
 }
 
 function _spawnScorePop(x, y) {
+  if (!_container) return;
   const rect = _container.getBoundingClientRect();
   const pop = document.createElement('div');
   pop.textContent = '+1';
@@ -443,49 +415,16 @@ function _spawnScorePop(x, y) {
     top:  ${y - rect.top}px;
     transform: translate(-50%, -50%);
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 28px;
-    color: #AAFF00;
-    pointer-events: none;
-    z-index: 30;
+    font-size: 28px; color: #AAFF00;
+    pointer-events: none; z-index: 30;
     animation: sd-score-pop 0.6s ease forwards;
   `;
   _container.appendChild(pop);
   _addTimer(setTimeout(() => pop.remove(), 650));
 }
 
-function _showOverlay(text, color, withShake) {
-  const ov = document.createElement('div');
-  ov.style.cssText = `
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 50;
-    pointer-events: none;
-  `;
-  const label = document.createElement('div');
-  label.textContent = text;
-  label.style.cssText = `
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: ${color === '#AAFF00' ? '88px' : '80px'};
-    color: ${color};
-    line-height: 1;
-    text-align: center;
-    animation: sd-win-bounce 0.45s cubic-bezier(0.34,1.56,0.64,1) both;
-    ${color === '#FF3B5C' ? 'text-shadow: 0 0 40px rgba(255,59,92,0.5);' : 'text-shadow: 0 0 40px rgba(170,255,0,0.4);'}
-  `;
-  ov.appendChild(label);
-  _container.appendChild(ov);
-
-  if (withShake) _shakeScreen();
-}
-
 // ─── Utility ──────────────────────────────────────────────────────────────────
-function _addTimer(id) {
-  _timers.push(id);
-  return id;
-}
+function _addTimer(id) { _timers.push(id); return id; }
 
 function _addListener(el, type, fn, options) {
   el.addEventListener(type, fn, options);

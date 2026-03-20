@@ -4,32 +4,36 @@
 
 import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
 
-let _container = null;
-let _onWin = null;
-let _onFail = null;
-let _timerInterval = null;
-let _gameTimeout = null;
-let _resumeTimeout = null;
-let _timeLeft = 10;
-let _currentStep = 0;
+let _container      = null;
+let _onWin          = null;
+let _onFail         = null;
+let _timerInterval  = null;
+let _gameTimeout    = null;
+let _resumeTimeout  = null;
+let _timeLeft       = 10;
+let _currentStep    = 0;
 let _roundsComplete = 0;
-let _totalRounds = 3;
-let _finished = false;
-let _locked = false;
-let _tileElements = [];
+const _totalRounds  = 3;
+let _finished       = false;
+let _locked         = false;
+let _tileElements   = [];
+
+// Bug 2 safe-zone constants (20% top + bottom)
+const SAFE_TOP_PCT = 0.20;
+const SAFE_BOT_PCT = 0.20;
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
 export function init(container, onWin, onFail) {
-  _container = container;
-  _onWin     = onWin;
-  _onFail    = onFail;
-  _finished  = false;
-  _locked    = false;
-  _timeLeft  = 10;
-  _currentStep     = 0;
-  _roundsComplete  = 0;
-  _tileElements    = [];
+  _container      = container;
+  _onWin          = onWin;
+  _onFail         = onFail;
+  _finished       = false;
+  _locked         = false;
+  _timeLeft       = 10;
+  _currentStep    = 0;
+  _roundsComplete = 0;
+  _tileElements   = [];
 
   _buildUI();
   _spawnTiles(true);
@@ -53,13 +57,9 @@ export function destroy() {
 function _buildUI() {
   _container.innerHTML = '';
   _container.style.cssText = `
-    position: relative;
-    width: 100%;
-    height: 100%;
-    background: #0A0A0F;
-    overflow: hidden;
-    user-select: none;
-    -webkit-user-select: none;
+    position: relative; width: 100%; height: 100%;
+    background: #0A0A0F; overflow: hidden;
+    user-select: none; -webkit-user-select: none;
   `;
 
   if (!document.getElementById('ss-fonts')) {
@@ -121,29 +121,24 @@ function _buildUI() {
     document.head.appendChild(style);
   }
 
-  // ── Round counter label (top-right, stays in-game) ───────────────────────────
   const roundLabel = document.createElement('div');
   roundLabel.id = 'ss-round-label';
   roundLabel.style.cssText = `
-    position: absolute;
-    top: 14px;
-    right: 16px;
-    font-family: 'DM Mono', monospace;
-    font-size: 11px;
-    color: rgba(255,255,255,0.4);
-    letter-spacing: 0.04em;
-    pointer-events: none;
-    z-index: 10;
+    position: absolute; top: 14px; right: 16px;
+    font-family: 'DM Mono', monospace; font-size: 11px;
+    color: rgba(255,255,255,0.4); letter-spacing: 0.04em;
+    pointer-events: none; z-index: 10;
   `;
   roundLabel.textContent = `ROUND 1 / ${_totalRounds}`;
   _container.appendChild(roundLabel);
 
-  // ── Next-tap indicator (bottom, stays in-game) ────────────────────────────────
+  // Bug 2: next-tap indicator must stay in safe zone — push it up from the
+  // raw bottom so it doesn't fall into the bottom 20%.
   const nextLabel = document.createElement('div');
   nextLabel.id = 'ss-next-label';
   nextLabel.style.cssText = `
     position: absolute;
-    bottom: 30px;
+    bottom: calc(20% + 12px);
     left: 50%;
     transform: translateX(-50%);
     font-family: 'Bebas Neue', sans-serif;
@@ -156,16 +151,12 @@ function _buildUI() {
   nextLabel.textContent = 'NEXT: 1';
   _container.appendChild(nextLabel);
 
-  // ── Correct-tap flash overlay ────────────────────────────────────────────────
   const flashOverlay = document.createElement('div');
   flashOverlay.id = 'ss-flash';
   flashOverlay.style.cssText = `
-    position: absolute;
-    inset: 0;
-    background: rgba(0,229,255,0.20);
-    pointer-events: none;
-    z-index: 50;
-    opacity: 0;
+    position: absolute; inset: 0;
+    background: rgba(0,229,255,0.20); pointer-events: none;
+    z-index: 50; opacity: 0;
   `;
   _container.appendChild(flashOverlay);
 }
@@ -181,26 +172,21 @@ function _spawnTiles(initial = false) {
 
   [1, 2, 3].forEach((num, i) => {
     const tile = document.createElement('div');
-    tile.className = 'ss-tile';
+    tile.className   = 'ss-tile';
     tile.dataset.num = String(num);
 
     tile.style.cssText = `
       position: absolute;
-      width: 76px;
-      height: 76px;
+      width: 76px; height: 76px;
       left: ${positions[i].x}px;
-      top: ${positions[i].y}px;
+      top:  ${positions[i].y}px;
       background: rgba(255,255,255,0.07);
       border: 1.5px solid rgba(255,255,255,0.18);
       border-radius: 6px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       font-family: 'Bebas Neue', sans-serif;
-      font-size: 36px;
-      color: #FFFFFF;
-      cursor: pointer;
-      touch-action: manipulation;
+      font-size: 36px; color: #FFFFFF;
+      cursor: pointer; touch-action: manipulation;
       animation: ss-bounce-in 0.38s cubic-bezier(0.34,1.56,0.64,1) both,
                  ss-tile-pulse 1.8s ease-in-out infinite;
       animation-delay: ${i * 0.08}s, ${i * 0.08 + 0.38}s;
@@ -223,16 +209,18 @@ function _spawnTiles(initial = false) {
   });
 }
 
+// Bug 2: tiles must not spawn in top 20% or bottom 20%
 function _randomPositions() {
   const containerW = _container.offsetWidth  || 390;
   const containerH = _container.offsetHeight || 680;
   const tileSize   = 76;
-  const minX       = 16;
-  const maxX       = containerW - tileSize - 16;
-  // Top reserve: clear instruction label area (~40px) + padding
-  const minY       = 56;
-  const maxY       = containerH - tileSize - 70;
-  const minDist    = 100;
+  const pad        = 16;
+
+  const minX  = pad;
+  const maxX  = containerW - tileSize - pad;
+  const minY  = Math.max(56, containerH * SAFE_TOP_PCT);
+  const maxY  = containerH - tileSize - Math.max(70, containerH * SAFE_BOT_PCT);
+  const minDist = 100;
 
   const placed = [];
   let attempts = 0;
@@ -241,20 +229,21 @@ function _randomPositions() {
     attempts++;
     const cx = minX + Math.random() * (maxX - minX);
     const cy = minY + Math.random() * (maxY - minY);
-
     const tooClose = placed.some(p => {
       const dx = (p.x + tileSize / 2) - (cx + tileSize / 2);
       const dy = (p.y + tileSize / 2) - (cy + tileSize / 2);
       return Math.sqrt(dx * dx + dy * dy) < minDist;
     });
-
     if (!tooClose) placed.push({ x: Math.round(cx), y: Math.round(cy) });
   }
 
   if (placed.length < 3) {
     const midY = (minY + maxY) / 2;
     const step = (maxX - minX) / 2;
-    return [0, 1, 2].map(i => ({ x: Math.round(minX + i * step), y: Math.round(midY) }));
+    return [0, 1, 2].map(i => ({
+      x: Math.round(minX + i * step),
+      y: Math.round(midY),
+    }));
   }
 
   return placed;
@@ -264,9 +253,7 @@ function _randomPositions() {
 
 function _onTileTap(num, tileEl, e) {
   if (_finished || _locked) return;
-
   const expected = _currentStep + 1;
-
   if (num === expected) {
     _handleCorrectTap(num, tileEl, e);
   } else {
@@ -275,6 +262,9 @@ function _onTileTap(num, tileEl, e) {
 }
 
 function _handleCorrectTap(num, tileEl, e) {
+  // Bug 3: correct sound
+  if (window.SS_SOUND) window.SS_SOUND.correct();
+
   const flash = document.getElementById('ss-flash');
   if (flash) {
     flash.style.animation = 'none';
@@ -289,7 +279,7 @@ function _handleCorrectTap(num, tileEl, e) {
     _spawnScorePop(touch.clientX - rect.left, touch.clientY - rect.top);
   }
 
-  tileEl.style.animation = 'ss-tile-win 0.28s ease-out forwards';
+  tileEl.style.animation    = 'ss-tile-win 0.28s ease-out forwards';
   tileEl.style.pointerEvents = 'none';
   tileEl.removeEventListener('touchstart', tileEl._tapHandler);
 
@@ -308,8 +298,8 @@ function _handleCorrectTap(num, tileEl, e) {
     } else {
       _locked = true;
       _resumeTimeout = setTimeout(() => {
-        _locked       = false;
-        _currentStep  = 0;
+        _locked      = false;
+        _currentStep = 0;
         _updateNextLabel();
         _spawnTiles(false);
       }, 250);
@@ -320,6 +310,9 @@ function _handleCorrectTap(num, tileEl, e) {
 function _handleWrongTap() {
   if (_locked) return;
   _locked = true;
+
+  // Bug 3: wrong sound
+  if (window.SS_SOUND) window.SS_SOUND.wrong();
 
   _container.style.animation = 'none';
   void _container.offsetWidth;
@@ -340,7 +333,6 @@ function _startTimer() {
   _timerInterval = setInterval(() => {
     if (_finished) return;
     _timeLeft -= 0.1;
-
     if (_timeLeft <= 0) {
       _clearAllTimers();
       if (!_finished) _triggerFail();
@@ -358,7 +350,6 @@ function _triggerWin() {
   if (_finished) return;
   _finished = true;
   _clearAllTimers();
-  _showOverlay('NICE! 🔥', '#AAFF00', false);
   setTimeout(() => { if (_onWin) _onWin(); }, 800);
 }
 
@@ -366,63 +357,21 @@ function _triggerFail() {
   if (_finished) return;
   _finished = true;
   _clearAllTimers();
-  _showOverlay('FAILED ✗', '#FF3B5C', true);
+  // Bug 3: wrong sound on time-out fail
+  if (window.SS_SOUND) window.SS_SOUND.wrong();
   setTimeout(() => { if (_onFail) _onFail(); }, 1200);
-}
-
-function _showOverlay(text, color, shake) {
-  const overlay = document.createElement('div');
-  overlay.style.cssText = `
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-    pointer-events: none;
-  `;
-
-  const label = document.createElement('div');
-  label.style.cssText = `
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: ${text.startsWith('NICE') ? '88px' : '80px'};
-    color: ${color};
-    letter-spacing: 0.02em;
-    text-align: center;
-    animation: ss-overlay-bounce 0.45s cubic-bezier(0.34,1.56,0.64,1) forwards;
-    text-shadow: 0 0 40px ${color}99;
-  `;
-  label.textContent = text;
-
-  overlay.appendChild(label);
-  _container.appendChild(overlay);
-
-  if (shake) {
-    _container.style.animation = 'none';
-    void _container.offsetWidth;
-    _container.style.animation = 'ss-screen-shake 0.4s ease-out forwards';
-  }
 }
 
 // ─── HUD Label Helpers ─────────────────────────────────────────────────────────
 
 function _updateRoundLabel() {
   const el = document.getElementById('ss-round-label');
-  if (el) {
-    const display = Math.min(_roundsComplete + 1, _totalRounds);
-    el.textContent = `ROUND ${display} / ${_totalRounds}`;
-  }
+  if (el) el.textContent = `ROUND ${Math.min(_roundsComplete + 1, _totalRounds)} / ${_totalRounds}`;
 }
 
 function _updateNextLabel() {
   const el = document.getElementById('ss-next-label');
-  if (el) {
-    if (_currentStep >= 3) {
-      el.textContent = '✓';
-    } else {
-      el.textContent = `NEXT: ${_currentStep + 1}`;
-    }
-  }
+  if (el) el.textContent = _currentStep >= 3 ? '✓' : `NEXT: ${_currentStep + 1}`;
 }
 
 // ─── Score Pop ─────────────────────────────────────────────────────────────────
@@ -431,13 +380,10 @@ function _spawnScorePop(x, y) {
   const pop = document.createElement('div');
   pop.style.cssText = `
     position: absolute;
-    left: ${x - 12}px;
-    top: ${y - 20}px;
+    left: ${x - 12}px; top: ${y - 20}px;
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 24px;
-    color: #AAFF00;
-    pointer-events: none;
-    z-index: 60;
+    font-size: 24px; color: #AAFF00;
+    pointer-events: none; z-index: 60;
     animation: ss-score-float 0.6s ease-out forwards;
   `;
   pop.textContent = '+1';

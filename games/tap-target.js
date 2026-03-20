@@ -1,41 +1,44 @@
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 //  ScrollStrike — Tap Target Mini Game
 //  File: games/tap-target.js
-// ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
 
 import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
 
-let _container = null;
-let _onWin = null;
-let _onFail = null;
+let _container    = null;
+let _onWin        = null;
+let _onFail       = null;
 
-let _score = 0;
-let _finished = false;
-let _timeLeft = 10;
+let _score        = 0;
+let _finished     = false;
+let _timeLeft     = 10;
 
-let _tickRAF = null;
+let _tickRAF      = null;
 
-let _circleEl = null;
+let _circleEl     = null;
 let _scoreCountEl = null;
-let _timerBarEl = null;
-let _timerNumEl = null;
+let _timerBarEl   = null;
+let _timerNumEl   = null;
 
-let _boundTap = null;
+let _boundTap     = null;
 
-const TARGET_SCORE = 5;
-const GAME_DURATION = 10; // seconds
+const TARGET_SCORE   = 5;
+const GAME_DURATION  = 10;
 const CIRCLE_DIAMETER = 64;
-const EDGE_PADDING = 40;
+// Bug 2: safe zone guards — nothing spawns in top 20% or bottom 20%
+const EDGE_PADDING   = 16;
+const SAFE_TOP_PCT   = 0.20;
+const SAFE_BOT_PCT   = 0.20;
 
 // ── Public API ────────────────────────────────────────────────
 
 export function init(container, onWin, onFail) {
   _container = container;
-  _onWin = onWin;
-  _onFail = onFail;
-  _score = 0;
-  _finished = false;
-  _timeLeft = GAME_DURATION;
+  _onWin     = onWin;
+  _onFail    = onFail;
+  _score     = 0;
+  _finished  = false;
+  _timeLeft  = GAME_DURATION;
 
   _render();
   setGameInstruction('TAP THE TARGET');
@@ -52,8 +55,6 @@ export function destroy() {
 function _render() {
   _container.innerHTML = '';
 
-  // Re-append the instruction element if it was wiped (game-engine preserves
-  // it, but guard here too)
   const existing = document.getElementById('game-instruction');
   if (existing && existing.parentNode !== _container) {
     _container.appendChild(existing);
@@ -76,7 +77,6 @@ function _render() {
         -webkit-user-select: none;
       }
 
-      /* Score counter — top-right of game area */
       .stt-score-counter {
         position: absolute;
         top: 12px;
@@ -88,10 +88,8 @@ function _render() {
         pointer-events: none;
         z-index: 10;
         letter-spacing: 0.04em;
-        transition: opacity 0.1s ease;
       }
 
-      /* ── Target circle ── */
       .stt-circle {
         position: absolute;
         width: 64px;
@@ -118,7 +116,6 @@ function _render() {
                             0 0 0   0   rgba(255, 59, 92, 0.3); }
       }
 
-      /* bounce-in for new position */
       .stt-circle.stt-bounce {
         animation: stt-bounce-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) forwards,
                    stt-pulse 1.2s ease-in-out 0.22s infinite;
@@ -129,7 +126,6 @@ function _render() {
         100% { transform: translate(-50%, -50%) scale(1.0); opacity: 1;   }
       }
 
-      /* ── Screen flash (correct) ── */
       .stt-flash {
         position: absolute;
         inset: 0;
@@ -149,7 +145,6 @@ function _render() {
         100% { opacity: 0; }
       }
 
-      /* ── Score pop (+1) ── */
       .stt-score-pop {
         position: absolute;
         font-family: 'Bebas Neue', sans-serif;
@@ -168,54 +163,6 @@ function _render() {
         100% { opacity: 0;   transform: translate(-50%, calc(-50% - 64px)); }
       }
 
-      /* ── Timer bar ── */
-      .stt-timer-bar-wrap {
-        position: absolute;
-        bottom: 20px;
-        left: 16px;
-        right: 16px;
-        z-index: 5;
-        pointer-events: none;
-      }
-
-      .stt-timer-track {
-        width: 100%;
-        height: 4px;
-        background: rgba(255,255,255,0.12);
-        border-radius: 2px;
-        overflow: hidden;
-      }
-
-      .stt-timer-fill {
-        height: 100%;
-        width: 100%;
-        background: #FF3B5C;
-        border-radius: 2px;
-        transform-origin: left center;
-        transition: background 0.3s ease;
-        will-change: transform;
-      }
-
-      .stt-timer-fill.stt-urgent {
-        background: #FFFFFF;
-        animation: stt-timer-pulse 0.5s ease-in-out infinite;
-      }
-
-      @keyframes stt-timer-pulse {
-        0%, 100% { opacity: 1; }
-        50%       { opacity: 0.55; }
-      }
-
-      .stt-timer-num {
-        text-align: center;
-        font-family: 'Bebas Neue', sans-serif;
-        font-size: 20px;
-        color: #FFFFFF;
-        margin-top: 6px;
-        letter-spacing: 0.04em;
-      }
-
-      /* ── Screen shake ── */
       @keyframes stt-shake {
         0%   { transform: translateX(0); }
         14%  { transform: translateX(-8px); }
@@ -234,68 +181,45 @@ function _render() {
     document.head.appendChild(style);
   }
 
-  // Wrapper
   const wrapper = document.createElement('div');
   wrapper.className = 'stt-wrapper';
 
-  // Score counter (top-right)
   _scoreCountEl = document.createElement('div');
   _scoreCountEl.className = 'stt-score-counter';
   _scoreCountEl.textContent = `0 / ${TARGET_SCORE}`;
   wrapper.appendChild(_scoreCountEl);
 
-  // Flash layer
   const flash = document.createElement('div');
   flash.className = 'stt-flash';
   wrapper.appendChild(flash);
 
-  // Circle
   _circleEl = document.createElement('div');
   _circleEl.className = 'stt-circle';
   wrapper.appendChild(_circleEl);
 
-  // Timer bar
-  _timerBarEl = document.createElement('div');
-  _timerBarEl.className = 'stt-timer-fill';
-
-  const timerTrack = document.createElement('div');
-  timerTrack.className = 'stt-timer-track';
-  timerTrack.appendChild(_timerBarEl);
-
-  _timerNumEl = document.createElement('div');
-  _timerNumEl.className = 'stt-timer-num';
-  _timerNumEl.textContent = GAME_DURATION;
-
-  const timerWrap = document.createElement('div');
-  timerWrap.className = 'stt-timer-bar-wrap';
-  timerWrap.appendChild(timerTrack);
-  timerWrap.appendChild(_timerNumEl);
-  wrapper.appendChild(timerWrap);
-
   _container.appendChild(wrapper);
 
-  // Position circle at a random spot
   _placeCircle(false);
 
-  // Attach tap listener to circle only
   _boundTap = _onCircleTap.bind(this);
   _circleEl.addEventListener('touchstart', _boundTap, { passive: false });
 }
 
 // ── Circle positioning ────────────────────────────────────────
+// Bug 2: constrain to middle 60% vertically (skip top 20% and bottom 20%)
 
 function _placeCircle(withBounce) {
   const bounds = _container.getBoundingClientRect();
   const w = bounds.width  || 390;
   const h = bounds.height || 700;
 
+  const safeTopPx = h * SAFE_TOP_PCT;
+  const safeBotPx = h * SAFE_BOT_PCT;
+
   const minX = EDGE_PADDING + CIRCLE_DIAMETER / 2;
   const maxX = w - EDGE_PADDING - CIRCLE_DIAMETER / 2;
-
-  // Top guard: clear the instruction label (~40px) + padding
-  const minY = 60 + CIRCLE_DIAMETER / 2;
-  // Keep above timer bar area (≈80px from bottom)
-  const maxY = h - 100 - CIRCLE_DIAMETER / 2;
+  const minY = safeTopPx + CIRCLE_DIAMETER / 2;
+  const maxY = h - safeBotPx - CIRCLE_DIAMETER / 2;
 
   const x = _rand(minX, maxX);
   const y = _rand(minY, maxY);
@@ -322,6 +246,9 @@ function _onCircleTap(e) {
   _updateCount();
   _triggerFlash();
   _spawnScorePop(touch.clientX, touch.clientY);
+
+  // Bug 3: correct sound
+  if (window.SS_SOUND) window.SS_SOUND.correct();
 
   if (_score >= TARGET_SCORE) {
     _finish(true);
@@ -381,22 +308,9 @@ function _startTimer() {
   function tick(now) {
     if (_finished) return;
 
-    const elapsed = (now - startTime) / 1000;
+    const elapsed   = (now - startTime) / 1000;
     const remaining = Math.max(0, GAME_DURATION - elapsed);
     _timeLeft = remaining;
-
-    if (_timerBarEl) {
-      const fraction = remaining / GAME_DURATION;
-      _timerBarEl.style.transform = `scaleX(${fraction})`;
-
-      if (remaining <= 3) {
-        _timerBarEl.classList.add('stt-urgent');
-      }
-    }
-
-    if (_timerNumEl) {
-      _timerNumEl.textContent = Math.ceil(remaining);
-    }
 
     if (remaining <= 0) {
       _finish(false);
@@ -419,6 +333,7 @@ function _finish(won) {
 
   if (!won) {
     _triggerShake();
+    if (window.SS_SOUND) window.SS_SOUND.wrong(); // Bug 3
   }
 
   const delay = setTimeout(() => {
@@ -442,7 +357,6 @@ function _teardownListeners() {
 
 function _teardown() {
   _finished = true;
-
   _teardownListeners();
 
   if (_tickRAF) {

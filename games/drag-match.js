@@ -5,35 +5,31 @@
 
 import { setGameInstruction, clearGameInstruction } from '/game-engine.js';
 
-let _container   = null;
-let _onWin       = null;
-let _onFail      = null;
-let _timerRAF    = null;
-let _startTime   = null;
-let _duration    = 10000; // 10 s
-let _resolved    = false;
+let _container  = null;
+let _onWin      = null;
+let _onFail     = null;
+let _timerRAF   = null;
+let _startTime  = null;
+let _duration   = 10000;
+let _resolved   = false;
 
-// Per-shape drag state
 const _drag = {
-  active:    false,
-  shapeKey:  null,
-  el:        null,
-  offsetX:   0,
-  offsetY:   0,
+  active:   false,
+  shapeKey: null,
+  el:       null,
+  offsetX:  0,
+  offsetY:  0,
 };
 
-// DOM node refs
 const _nodes = {
-  root:         null,
-  timerBar:     null,
-  timerCount:   null,
-  flash:        null,
-  winOverlay:   null,
-  failOverlay:  null,
-  shapes:       {},  // { circle: el, square: el }
-  targets:      {},  // { circle: el, square: el }
-  origins:      {},  // { circle: {x,y}, square: {x,y} }
-  matched:      { circle: false, square: false },
+  root:        null,
+  timerBar:    null,
+  timerCount:  null,
+  flash:       null,
+  shapes:      {},
+  targets:     {},
+  origins:     {},
+  matched:     { circle: false, square: false },
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -57,9 +53,7 @@ function _getCenter(el) {
   return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
 }
 
-function _dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
+function _dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
 // ─── Animations ───────────────────────────────────────────────────
 
@@ -85,17 +79,14 @@ function _shakeScreen() {
 
 function _scorePopAt(x, y) {
   const pop = document.createElement('div');
-  pop.textContent  = '+1';
+  pop.textContent = '+1';
   pop.style.cssText = `
     position: fixed;
-    left: ${x}px;
-    top:  ${y}px;
+    left: ${x}px; top: ${y}px;
     transform: translate(-50%, -50%);
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 28px;
-    color: #AAFF00;
-    pointer-events: none;
-    z-index: 9999;
+    font-size: 28px; color: #AAFF00;
+    pointer-events: none; z-index: 9999;
     animation: ss-score-pop 0.6s ease forwards;
   `;
   document.body.appendChild(pop);
@@ -103,19 +94,12 @@ function _scorePopAt(x, y) {
 }
 
 function _showWin() {
-  const ov = _nodes.winOverlay;
-  if (!ov) return;
-  ov.style.display = 'flex';
-  void ov.offsetWidth;
-  ov.style.animation = 'ss-bounce-in 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards';
+  // Bug 1: use engine's canonical overlay — do not spawn a local one.
+  // Just play sound; the engine shows the NICE overlay via onWin callback.
 }
 
 function _showFail() {
-  const ov = _nodes.failOverlay;
-  if (!ov) return;
-  ov.style.display = 'flex';
-  void ov.offsetWidth;
-  ov.style.animation = 'ss-bounce-in 0.35s cubic-bezier(0.34,1.56,0.64,1) forwards';
+  // Bug 1: engine's canonical overlay handles FAILED display.
   _shakeScreen();
 }
 
@@ -154,6 +138,9 @@ function _snapToTarget(key) {
   _nodes.matched[key] = true;
   _flashScreen();
 
+  // Bug 3: correct sound on each successful match
+  if (window.SS_SOUND) window.SS_SOUND.correct();
+
   const tc2 = _getCenter(target);
   _scorePopAt(tc2.x, tc2.y);
 
@@ -188,6 +175,8 @@ function _tickTimer(ts) {
   }
 
   if (progress >= 1) {
+    // Bug 3: wrong sound on timeout
+    if (window.SS_SOUND) window.SS_SOUND.wrong();
     _resolve('fail');
     return;
   }
@@ -258,6 +247,8 @@ function _onTouchEnd(e) {
     const wrongHit    = _dist(shapeCtr, wrongCtr) <= 44;
 
     if (wrongHit) {
+      // Bug 3: wrong sound when dropped on wrong target
+      if (window.SS_SOUND) window.SS_SOUND.wrong();
       _shakeScreen();
     }
     _springBack(key);
@@ -312,81 +303,56 @@ function _injectKeyframes() {
 function _buildUI() {
   _injectKeyframes();
 
-  // ── Root wrapper ──────────────────────────────────────────────
   const root = document.createElement('div');
   root.style.cssText = `
-    position: relative;
-    width: 100%;
-    height: 100%;
-    background: #0A0A0F;
-    overflow: hidden;
+    position: relative; width: 100%; height: 100%;
+    background: #0A0A0F; overflow: hidden;
     font-family: 'DM Sans', sans-serif;
-    touch-action: none;
-    user-select: none;
-    -webkit-user-select: none;
+    touch-action: none; user-select: none; -webkit-user-select: none;
   `;
   _nodes.root = root;
 
-  // ── Screen flash overlay ──────────────────────────────────────
   const flash = document.createElement('div');
   flash.style.cssText = `
     position: absolute; inset: 0;
-    pointer-events: none;
-    z-index: 500;
-    opacity: 0;
-    background: rgba(0,229,255,0.2);
+    pointer-events: none; z-index: 500;
+    opacity: 0; background: rgba(0,229,255,0.2);
   `;
   _nodes.flash = flash;
   root.appendChild(flash);
 
-  // ── Vertical divider ─────────────────────────────────────────
   const divider = document.createElement('div');
   divider.style.cssText = `
-    position: absolute;
-    left: 50%;
-    top: 15%;
-    height: 70%;
-    width: 1px;
-    background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.1) 20%, rgba(255,255,255,0.1) 80%, transparent);
-    pointer-events: none;
-    z-index: 1;
+    position: absolute; left: 50%; top: 15%; height: 70%; width: 1px;
+    background: linear-gradient(to bottom, transparent,
+      rgba(255,255,255,0.1) 20%, rgba(255,255,255,0.1) 80%, transparent);
+    pointer-events: none; z-index: 1;
   `;
   root.appendChild(divider);
 
-  // ── Timer bar ─────────────────────────────────────────────────
-  const timerWrap = document.createElement('div');
+  const timerWrap  = document.createElement('div');
   timerWrap.style.cssText = `
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
+    position: absolute; bottom: 0; left: 0; right: 0;
     padding: 0 0 env(safe-area-inset-bottom, 0);
-    pointer-events: none;
-    z-index: 300;
+    pointer-events: none; z-index: 300;
   `;
   const timerTrack = document.createElement('div');
   timerTrack.style.cssText = `
-    width: 100%; height: 4px;
-    background: #1C1C2E;
-    overflow: visible;
-    position: relative;
+    width: 100%; height: 4px; background: #1C1C2E;
+    overflow: visible; position: relative;
   `;
   const timerBar = document.createElement('div');
   timerBar.style.cssText = `
-    position: absolute;
-    left: 0; top: 0;
-    width: 100%; height: 100%;
-    background: #FF3B5C;
-    transform-origin: left center;
-    transform: scaleX(1);
-    transition: none;
+    position: absolute; left: 0; top: 0;
+    width: 100%; height: 100%; background: #FF3B5C;
+    transform-origin: left center; transform: scaleX(1); transition: none;
   `;
   const timerCount = document.createElement('div');
   timerCount.textContent = '10';
   timerCount.style.cssText = `
-    width: 100%;
-    text-align: center;
+    width: 100%; text-align: center;
     font-family: 'Bebas Neue', sans-serif;
-    font-size: 20px;
-    color: #FFFFFF;
+    font-size: 20px; color: #FFFFFF;
     padding: 4px 0 8px;
   `;
   timerTrack.appendChild(timerBar);
@@ -397,62 +363,57 @@ function _buildUI() {
   _nodes.timerBar   = timerBar;
   _nodes.timerCount = timerCount;
 
-  // ── Layout measurements ───────────────────────────────────────
+  // Bug 2: layout shapes and targets within middle 60% vertically
   const SHAPE_SIZE  = 64;
   const containerH  = _container.offsetHeight || window.innerHeight;
   const containerW  = _container.offsetWidth  || Math.min(window.innerWidth, 390);
 
+  const safeTop     = containerH * 0.20;
+  const safeBot     = containerH * 0.20;
+  const safeHeight  = containerH - safeTop - safeBot;
+
+  // Place shapes in the vertical middle of the safe zone
+  const midY = safeTop + safeHeight / 2;
   const midX = containerW / 2;
-  // Shift vertically down slightly to avoid the #game-instruction label
-  const midY = containerH / 2 + 20;
 
   const shapeOrigins = {
-    circle: { x: midX / 2 - SHAPE_SIZE / 2, y: midY - 80 },
-    square: { x: midX / 2 - SHAPE_SIZE / 2, y: midY + 36 },
+    circle: { x: midX / 2 - SHAPE_SIZE / 2, y: midY - 52 },
+    square: { x: midX / 2 - SHAPE_SIZE / 2, y: midY + 20 },
   };
   const targetPos = {
-    circle: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY - 80 },
-    square: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY + 36 },
+    circle: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY - 52 },
+    square: { x: midX + midX / 2 - SHAPE_SIZE / 2, y: midY + 20 },
   };
 
   _nodes.origins = shapeOrigins;
 
-  // ── Shapes ────────────────────────────────────────────────────
   const shapeConfigs = [
     { key: 'circle', color: '#00E5FF', radius: '50%' },
     { key: 'square', color: '#FF3B5C', radius: '10px' },
   ];
 
   shapeConfigs.forEach(({ key, color, radius }) => {
-    const el = document.createElement('div');
+    const el  = document.createElement('div');
     const org = shapeOrigins[key];
     el.dataset.shape = key;
     el.style.cssText = `
       position: absolute;
-      left:   ${org.x}px;
-      top:    ${org.y}px;
-      width:  ${SHAPE_SIZE}px;
-      height: ${SHAPE_SIZE}px;
-      background: ${color};
-      border-radius: ${radius};
-      z-index: 100;
-      cursor: grab;
-      touch-action: none;
-      animation: ss-pulse-glow 1.2s ease-in-out infinite, ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
+      left: ${org.x}px; top: ${org.y}px;
+      width: ${SHAPE_SIZE}px; height: ${SHAPE_SIZE}px;
+      background: ${color}; border-radius: ${radius};
+      z-index: 100; cursor: grab; touch-action: none;
+      animation: ss-pulse-glow 1.2s ease-in-out infinite,
+                 ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1) both;
       animation-delay: 0s, ${key === 'square' ? '0.12s' : '0s'};
-      box-shadow: 0 0 0 0 ${color};
-      will-change: transform, left, top;
+      box-shadow: 0 0 0 0 ${color}; will-change: transform, left, top;
     `;
-
     el.addEventListener('touchstart', _onTouchStart, { passive: false });
     el.addEventListener('touchmove',  _onTouchMove,  { passive: false });
     el.addEventListener('touchend',   _onTouchEnd,   { passive: false });
-
     root.appendChild(el);
     _nodes.shapes[key] = el;
   });
 
-  // ── Targets ───────────────────────────────────────────────────
   const targetConfigs = [
     { key: 'circle', radius: '50%' },
     { key: 'square', radius: '10px' },
@@ -463,22 +424,19 @@ function _buildUI() {
     const pos = targetPos[key];
     el.style.cssText = `
       position: absolute;
-      left:   ${pos.x}px;
-      top:    ${pos.y}px;
-      width:  ${SHAPE_SIZE}px;
-      height: ${SHAPE_SIZE}px;
+      left: ${pos.x}px; top: ${pos.y}px;
+      width: ${SHAPE_SIZE}px; height: ${SHAPE_SIZE}px;
       border: 2px dashed rgba(255,255,255,0.25);
-      border-radius: ${radius};
-      background: transparent;
-      z-index: 5;
-      pointer-events: none;
-      animation: ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1) ${key === 'square' ? '0.18s' : '0.06s'} both;
+      border-radius: ${radius}; background: transparent;
+      z-index: 5; pointer-events: none;
+      animation: ss-bounce-appear 0.4s cubic-bezier(0.34,1.56,0.64,1)
+                 ${key === 'square' ? '0.18s' : '0.06s'} both;
     `;
     root.appendChild(el);
     _nodes.targets[key] = el;
   });
 
-  // ── Labels under shapes and targets ──────────────────────────
+  // Labels under shapes and targets
   [
     { key: 'circle', pos: shapeOrigins.circle },
     { key: 'square', pos: shapeOrigins.square },
@@ -489,59 +447,15 @@ function _buildUI() {
     label.textContent = key.toUpperCase();
     label.style.cssText = `
       position: absolute;
-      left:  ${pos.x}px;
-      top:   ${pos.y + SHAPE_SIZE + 8}px;
-      width: ${SHAPE_SIZE}px;
-      text-align: center;
+      left: ${pos.x}px; top: ${pos.y + SHAPE_SIZE + 8}px;
+      width: ${SHAPE_SIZE}px; text-align: center;
       font-family: 'DM Sans', sans-serif;
-      font-size: 10px;
-      color: rgba(255,255,255,0.3);
-      pointer-events: none;
-      letter-spacing: 0.5px;
-      z-index: 2;
+      font-size: 10px; color: rgba(255,255,255,0.3);
+      pointer-events: none; letter-spacing: 0.5px; z-index: 2;
     `;
     root.appendChild(label);
   });
 
-  // ── Win overlay ───────────────────────────────────────────────
-  const winOv = document.createElement('div');
-  winOv.style.cssText = `
-    display: none;
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%,-50%);
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 88px;
-    color: #AAFF00;
-    white-space: nowrap;
-    pointer-events: none;
-    z-index: 800;
-    text-shadow: 0 0 40px rgba(170,255,0,0.7);
-  `;
-  winOv.textContent = 'NICE! 🔥';
-  _nodes.winOverlay = winOv;
-  root.appendChild(winOv);
-
-  // ── Fail overlay ──────────────────────────────────────────────
-  const failOv = document.createElement('div');
-  failOv.style.cssText = `
-    display: none;
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%,-50%);
-    font-family: 'Bebas Neue', sans-serif;
-    font-size: 80px;
-    color: #FF3B5C;
-    white-space: nowrap;
-    pointer-events: none;
-    z-index: 800;
-    text-shadow: 0 0 30px rgba(255,59,92,0.7);
-  `;
-  failOv.textContent = 'FAILED ✗';
-  _nodes.failOverlay = failOv;
-  root.appendChild(failOv);
-
-  // ── Mount ─────────────────────────────────────────────────────
   _container.appendChild(root);
 }
 
@@ -562,7 +476,6 @@ export function init(container, onWin, onFail) {
   _buildUI();
   setGameInstruction('DRAG TO MATCH');
 
-  // Start timer on next frame so layout is settled
   _timerRAF = requestAnimationFrame(_tickTimer);
 }
 
@@ -581,15 +494,13 @@ export function destroy() {
     _nodes.root.parentNode.removeChild(_nodes.root);
   }
 
-  _container    = null;
-  _onWin        = null;
-  _onFail       = null;
+  _container          = null;
+  _onWin              = null;
+  _onFail             = null;
   _nodes.root         = null;
   _nodes.timerBar     = null;
   _nodes.timerCount   = null;
   _nodes.flash        = null;
-  _nodes.winOverlay   = null;
-  _nodes.failOverlay  = null;
   Object.keys(_nodes.shapes).forEach(k  => { _nodes.shapes[k]  = null; });
   Object.keys(_nodes.targets).forEach(k => { _nodes.targets[k] = null; });
   Object.keys(_nodes.origins).forEach(k => { _nodes.origins[k] = null; });

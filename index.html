@@ -99,12 +99,6 @@
     }
 
     /* ── GAME INSTRUCTION ─────────────────────────────────────────── */
-    /*
-     * Shared instruction label injected by each game module.
-     * Sits at the top of the game-area, below the HUD.
-     * pointer-events:none so taps pass through freely.
-     * Modules write to this element on init() and clear it on destroy().
-     */
     #game-instruction {
       position: absolute;
       top: 14px;
@@ -271,6 +265,12 @@
     }
 
     /* ── OVERLAYS ─────────────────────────────────────────────────── */
+    /*
+     * BUG 1 FIX: overlays are position:absolute inset:0 with flex centering.
+     * Previously individual game modules were spawning their own overlay divs
+     * with position:absolute but without inset:0, causing bottom-right drift.
+     * The canonical overlays here are always perfectly centered.
+     */
     .overlay {
       position: absolute;
       inset: 0;
@@ -524,22 +524,16 @@
 <div id="app">
   <div id="game-viewport">
 
-    <!-- Single permanent slide — GameEngine reuses this container -->
+    <!-- Single permanent slide -->
     <div id="slide-stack">
       <div class="slide">
         <div class="game-area" id="game-area">
-          <!--
-            Shared instruction label — populated by each game module via
-            setGameInstruction(text) / clearGameInstruction() in game-engine.js.
-            Lives here so it always sits at the top of the game-area,
-            below the HUD, without being wiped when game-area is cleared.
-          -->
           <div id="game-instruction"></div>
         </div>
       </div>
     </div>
 
-    <!-- HUD (always on top, pointer-events:none) -->
+    <!-- HUD -->
     <div id="hud">
       <div id="hud-top">
         <div id="hearts"></div>
@@ -596,6 +590,140 @@
 import { GameEngine } from '/game-engine.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AUDIO ENGINE (Bug 3)
+// Web Audio API — all synthesis, no external files.
+// AudioContext is created on first user touch (iOS requirement).
+// ─────────────────────────────────────────────────────────────────────────────
+let _audioCtx = null;
+let _audioUnlocked = false;
+
+function _getAudioCtx() {
+  if (!_audioCtx) {
+    try {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+      return null;
+    }
+  }
+  return _audioCtx;
+}
+
+function _unlockAudio() {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  const ctx = _getAudioCtx();
+  if (!ctx) return;
+  // Play a silent buffer to unlock on iOS
+  const buf = ctx.createBuffer(1, 1, 22050);
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(ctx.destination);
+  src.start(0);
+  if (ctx.state === 'suspended') ctx.resume();
+}
+
+/**
+ * Play a tone.
+ * @param {number} freq       Hz
+ * @param {string} type       OscillatorType
+ * @param {number} duration   seconds
+ * @param {number} gain       0–1
+ * @param {number} startDelay seconds from now
+ */
+function _playTone(freq, type, duration, gain = 0.18, startDelay = 0) {
+  if (!_audioUnlocked) return;
+  const ctx = _getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env);
+    env.connect(ctx.destination);
+
+    osc.type      = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + startDelay);
+
+    env.gain.setValueAtTime(0, ctx.currentTime + startDelay);
+    env.gain.linearRampToValueAtTime(gain, ctx.currentTime + startDelay + 0.005);
+    env.gain.linearRampToValueAtTime(0,    ctx.currentTime + startDelay + duration);
+
+    osc.start(ctx.currentTime + startDelay);
+    osc.stop(ctx.currentTime + startDelay + duration + 0.01);
+  } catch (e) { /* non-blocking */ }
+}
+
+/**
+ * Descending frequency sweep (fail sound).
+ */
+function _playSweep(freqStart, freqEnd, type, duration, gain = 0.18) {
+  if (!_audioUnlocked) return;
+  const ctx = _getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.connect(env);
+    env.connect(ctx.destination);
+
+    osc.type = type;
+    osc.frequency.setValueAtTime(freqStart, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(freqEnd, ctx.currentTime + duration);
+
+    env.gain.setValueAtTime(0, ctx.currentTime);
+    env.gain.linearRampToValueAtTime(gain, ctx.currentTime + 0.01);
+    env.gain.linearRampToValueAtTime(0,    ctx.currentTime + duration);
+
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + duration + 0.01);
+  } catch (e) { /* non-blocking */ }
+}
+
+// ── Named sound events ────────────────────────────────────────────────────────
+
+/** Correct tap: 880 Hz sine, 0.08 s */
+export function soundCorrect() {
+  _playTone(880, 'sine', 0.08, 0.15);
+}
+
+/** Wrong action: 120 Hz sawtooth, 0.15 s */
+export function soundWrong() {
+  _playTone(120, 'sawtooth', 0.15, 0.20);
+}
+
+/** Win: 523 Hz then 784 Hz, 0.12 s each */
+export function soundWin() {
+  _playTone(523, 'sine', 0.12, 0.18, 0);
+  _playTone(784, 'sine', 0.12, 0.18, 0.13);
+}
+
+/** Fail: descending sweep 300 → 150 Hz, 0.2 s */
+export function soundFail() {
+  _playSweep(300, 150, 'sawtooth', 0.20, 0.18);
+}
+
+/** Game over: three descending tones */
+export function soundGameOver() {
+  _playTone(400, 'sine', 0.15, 0.20, 0);
+  _playTone(300, 'sine', 0.15, 0.20, 0.18);
+  _playTone(200, 'sine', 0.20, 0.20, 0.36);
+}
+
+/** Timer urgent tick: 440 Hz sine, 0.05 s */
+export function soundTick() {
+  _playTone(440, 'sine', 0.05, 0.10);
+}
+
+// Expose to game modules via window so they don't need to import index.html
+window.SS_SOUND = {
+  correct:   soundCorrect,
+  wrong:     soundWrong,
+  win:       soundWin,
+  fail:      soundFail,
+  gameOver:  soundGameOver,
+  tick:      soundTick,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // DOM REFS
 // ─────────────────────────────────────────────────────────────────────────────
 const viewport       = document.getElementById('game-viewport');
@@ -620,14 +748,16 @@ const GAME_DURATION  = 10;
 const TIMER_URGENT_S = 3;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TIMER  (driven by index.html; game modules call onWin/onFail directly)
+// TIMER
 // ─────────────────────────────────────────────────────────────────────────────
-let timerInterval = null;
-let timerSeconds  = GAME_DURATION;
+let timerInterval   = null;
+let timerSeconds    = GAME_DURATION;
+let _tickPlayed     = false; // guard so tick sound fires once per urgent phase
 
 function startTimer() {
   clearInterval(timerInterval);
   timerSeconds = GAME_DURATION;
+  _tickPlayed  = false;
   timerBarEl.style.transform = 'scaleX(1)';
   timerBarEl.classList.remove('urgent');
   timerNumEl.textContent = timerSeconds;
@@ -641,6 +771,11 @@ function startTimer() {
 
     if (timerSeconds <= TIMER_URGENT_S && timerSeconds > 0) {
       timerBarEl.classList.add('urgent');
+      // Play tick once when urgency phase starts (Bug 3)
+      if (!_tickPlayed) {
+        _tickPlayed = true;
+        soundTick();
+      }
     }
 
     if (timerSeconds <= 0) {
@@ -730,6 +865,7 @@ function onWin(streak) {
   hideTimer();
   flashCyan();
   renderStreak(streak);
+  soundWin(); // Bug 3
 
   winOverlay.classList.add('visible');
   setTimeout(() => winOverlay.classList.remove('visible'), 750);
@@ -742,6 +878,7 @@ function onFail(lives) {
   animateHeartLoss(lives);
   renderHearts(lives);
   renderStreak(0);
+  soundFail(); // Bug 3
 
   failOverlay.classList.add('visible');
   setTimeout(() => failOverlay.classList.remove('visible'), 1150);
@@ -750,6 +887,7 @@ function onFail(lives) {
 function showGameOver(bestStreak, _streak) {
   stopTimer();
   hideTimer();
+  soundGameOver(); // Bug 3
 
   const finalStreak = parseInt(streakEl.textContent, 10) || 0;
 
@@ -759,8 +897,6 @@ function showGameOver(bestStreak, _streak) {
   gameoverScreen.classList.add('visible');
 }
 
-// onGameStart is called by GameEngine just before each game module's init().
-// We use it to kick the HUD timer.
 function onGameStart() {
   startTimer();
 }
@@ -771,9 +907,10 @@ function onGameStart() {
 const engine = new GameEngine(gameArea, { onWin, onFail, showGameOver, onGameStart });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TOUCH — prevent scroll / double-tap zoom; pass-through to game modules
+// TOUCH — unlock audio on first touch, prevent scroll / double-tap zoom
 // ─────────────────────────────────────────────────────────────────────────────
 viewport.addEventListener('touchstart', (e) => {
+  _unlockAudio(); // Bug 3 — iOS requires user gesture before AudioContext
   e.preventDefault();
 }, { passive: false });
 
